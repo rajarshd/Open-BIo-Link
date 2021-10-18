@@ -14,4 +14,4 @@
 # If SBATCH --array flag is say 0-7 (8 jobs) then total (8 x count)
 # hyperparam settings will be tried
 
-wandb agent rajarshd/Prob-CBR-prob_cbr_data/v2isk3gn
+wandb agent rajarshd/Open-BIo-Link-src_prob_cbr_data/9mu5hqjp

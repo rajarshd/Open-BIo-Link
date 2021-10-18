@@ -1,4 +1,4 @@
-program: get_paths_parallel.py
+program: src/prob_cbr/data/get_paths_parallel.py
 method: grid
 parameters:
   data_dir:
@@ -8,7 +8,7 @@ parameters:
   num_paths_to_collect:
     value: 10000
   max_len:
-    value: 5
+    value: 3
   total_jobs:
     value: 100
   job_id:
