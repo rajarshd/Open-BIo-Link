@@ -6,15 +6,16 @@ from collections import defaultdict
 import pickle
 import torch
 import uuid
-from prob_cbr.data.data_utils import create_vocab, load_data, get_unique_entities, \
-    read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
-from prob_cbr.data.get_paths import get_paths
-from prob_cbr.clustering.entity_clustering import cluster_entities
 from typing import *
 import logging
 import json
 import sys
 import wandb
+
+from prob_cbr.data.data_utils import create_vocab, load_data, get_unique_entities, \
+    read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
+from prob_cbr.clustering.entity_clustering import cluster_entities
+from utils import calc_precision_map_parallel, get_adj_mat
 
 logger = logging.getLogger('main')
 logger.setLevel(logging.INFO)
@@ -94,19 +95,6 @@ class ProbCBR(object):
 
         return nearest_entities
 
-    @staticmethod
-    def get_programs(e: str, ans: str, all_paths_around_e: List[List[str]]):
-        """
-        Given an entity and answer, get all paths which end at that ans node in the subgraph surrounding e
-        """
-        all_programs = []
-        for path in all_paths_around_e:
-            for l, (r, e_dash) in enumerate(path):
-                if e_dash == ans:
-                    # get the path till this point
-                    all_programs.append([x for (x, _) in path[:l + 1]])  # we only need to keep the relations
-        return all_programs
-
     def get_programs_from_nearest_neighbors(self, e1: str, r: str, nn_func: Callable, num_nn: Optional[int] = 5):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
@@ -138,7 +126,8 @@ class ProbCBR(object):
         path_and_scores = []
         for p in unique_programs:
             try:
-                path_and_scores.append((p, self.args.path_prior_map_per_relation[self.c][r][p] * self.args.precision_map[self.c][r][p]))
+                path_and_scores.append(
+                    (p, self.args.path_prior_map_per_relation[self.c][r][p] * self.args.precision_map[self.c][r][p]))
             except KeyError:
                 # TODO: Fix key error
                 if len(p) == 1 and p[0] == r:
@@ -147,7 +136,8 @@ class ProbCBR(object):
                     # use the fall back score
                     try:
                         c = 0
-                        score = self.args.path_prior_map_per_relation_fallback[c][r][p] * self.args.precision_map_fallback[c][r][p]
+                        score = self.args.path_prior_map_per_relation_fallback[c][r][p] * \
+                                self.args.precision_map_fallback[c][r][p]
                         path_and_scores.append((p, score))
                     except KeyError:
                         # still a path or rel is missing.
@@ -193,7 +183,8 @@ class ProbCBR(object):
             """
             c = 0  # one cluster for all entity
             try:
-                score = self.args.path_prior_map_per_relation_fallback[c][r][p] * self.args.precision_map_fallback[c][r][p]
+                score = self.args.path_prior_map_per_relation_fallback[c][r][p] * \
+                        self.args.precision_map_fallback[c][r][p]
             except KeyError:
                 # either the path or relation is missing from the fall back map as well
                 score = 0
@@ -212,7 +203,8 @@ class ProbCBR(object):
                 try:
                     if path in self.args.path_prior_map_per_relation[self.c][r] and path in \
                             self.args.precision_map[self.c][r]:
-                        path_score = self.args.path_prior_map_per_relation[self.c][r][path] * self.args.precision_map[self.c][r][path]
+                        path_score = self.args.path_prior_map_per_relation[self.c][r][path] * \
+                                     self.args.precision_map[self.c][r][path]
                     else:
                         # logger.info("This path was not there in the cluster for the relation.")
                         path_score = _fall_back(r, path)
@@ -318,7 +310,7 @@ class ProbCBR(object):
         learnt_programs = defaultdict(lambda: defaultdict(int))  # for each query relation, a map of programs to count
         for ex_ctr, ((e1, r), e2_list) in enumerate(tqdm(self.eval_map.items())):
             # if e2_list is in train list then remove them
-            # Normally, this shouldnt happen at all, but this happens for Nell-995.
+            # Normally, this shouldn't happen at all, but this happens for Nell-995.
             orig_train_e2_list = self.train_map[(e1, r)]
             temp_train_e2_list = []
             for e2 in orig_train_e2_list:
@@ -460,110 +452,114 @@ class ProbCBR(object):
                        'avg_num_prog': np.mean(num_programs), 'avg_num_ans': np.mean(num_answers),
                        'avg_num_failed_prog': np.mean(self.num_non_executable_programs), 'acc_loose': np.mean(all_acc)})
 
-    def calc_precision_map(self, output_filenm=""):
-        """
-        Calculates precision of each path wrt a query relation, i.e. ratio of how many times, a path was successful when executed
-        to how many times the path was executed.
-        Note: In the current implementation, we compute precisions for the paths stored in the path_prior_map
-        :return:
-        """
-        logger.info("Calculating precision map")
-        success_map, total_map = {}, {}  # map from query r to a dict of path and ratio of success
-        # not sure why I am getting RuntimeError: dictionary changed size during iteration.
-        train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in self.train_map.items()]
-        for ((e1, r), e2_list) in tqdm(train_map):
-            c = self.args.cluster_assignments[self.entity_vocab[e1]]
-            if c not in success_map:
-                success_map[c] = {}
-            if c not in total_map:
-                total_map[c] = {}
-            if r not in success_map[c]:
-                success_map[c][r] = {}
-            if r not in total_map[c]:
-                total_map[c][r] = {}
-            paths_for_this_relation = self.args.path_prior_map_per_relation[c][r]
-            for p_ctr, (path, _) in enumerate(paths_for_this_relation.items()):
-                ans = self.execute_one_program(e1, path, depth=0, max_branch=100)
-                if len(ans) == 0:
-                    continue
-                # execute the path get answer
-                if path not in success_map[c][r]:
-                    success_map[c][r][path] = 0
-                if path not in total_map[c][r]:
-                    total_map[c][r][path] = 0
-                for a in ans:
-                    if a in e2_list:
-                        success_map[c][r][path] += 1
-                    total_map[c][r][path] += 1
+    # def calc_precision_map(self, output_filenm=""):
+    #     """
+    #     Calculates precision of each path wrt a query relation, i.e. ratio of how many times, a path was successful when executed
+    #     to how many times the path was executed.
+    #     Note: In the current implementation, we compute precisions for the paths stored in the path_prior_map
+    #     :return:
+    #     """
+    #     logger.info("Calculating precision map")
+    #     success_map, total_map = {}, {}  # map from query r to a dict of path and ratio of success
+    #     # not sure why I am getting RuntimeError: dictionary changed size during iteration.
+    #     train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in self.train_map.items()]
+    #     # sort this list so that every job gets the same list for processing
+    #     train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in sorted(train_map, key=lambda item: item[0])]
+    #     for ((e1, r), e2_list) in tqdm(train_map):
+    #         c = self.args.cluster_assignments[self.entity_vocab[e1]]
+    #         if c not in success_map:
+    #             success_map[c] = {}
+    #         if c not in total_map:
+    #             total_map[c] = {}
+    #         if r not in success_map[c]:
+    #             success_map[c][r] = {}
+    #         if r not in total_map[c]:
+    #             total_map[c][r] = {}
+    #         paths_for_this_relation = self.args.path_prior_map_per_relation[c][r]
+    #         for p_ctr, (path, _) in enumerate(paths_for_this_relation.items()):
+    #             ans = self.execute_one_program(e1, path, depth=0, max_branch=100)
+    #             if len(ans) == 0:
+    #                 continue
+    #             # execute the path get answer
+    #             if path not in success_map[c][r]:
+    #                 success_map[c][r][path] = 0
+    #             if path not in total_map[c][r]:
+    #                 total_map[c][r][path] = 0
+    #             for a in ans:
+    #                 if a in e2_list:
+    #                     success_map[c][r][path] += 1
+    #                 total_map[c][r][path] += 1
+    #
+    #     precision_map = {}
+    #     for c, _ in success_map.items():
+    #         for r, _ in success_map[c].items():
+    #             if c not in precision_map:
+    #                 precision_map[c] = {}
+    #             if r not in precision_map[c]:
+    #                 precision_map[c][r] = {}
+    #             for path, s_c in success_map[c][r].items():
+    #                 precision_map[c][r][path] = s_c / total_map[c][r][path]
+    #
+    #     if not output_filenm:
+    #         dir_name = os.path.join(args.data_dir, "data", self.args.dataset_name,
+    #                                 "linkage={}".format(self.args.linkage))
+    #         output_filenm = os.path.join(dir_name, "precision_map.pkl")
+    #     logger.info("Dumping precision map at {}".format(output_filenm))
+    #     with open(output_filenm, "wb") as fout:
+    #         pickle.dump(precision_map, fout)
+    #     logger.info("Done...")
 
-        precision_map = {}
-        for c, _ in success_map.items():
-            for r, _ in success_map[c].items():
-                if c not in precision_map:
-                    precision_map[c] = {}
-                if r not in precision_map[c]:
-                    precision_map[c][r] = {}
-                for path, s_c in success_map[c][r].items():
-                    precision_map[c][r][path] = s_c / total_map[c][r][path]
-
-        if not output_filenm:
-            dir_name = os.path.join(args.data_dir, "data", self.args.dataset_name, "linkage={}".format(self.args.linkage))
-            output_filenm = os.path.join(dir_name, "precision_map.pkl")
-        logger.info("Dumping precision map at {}".format(output_filenm))
-        with open(output_filenm, "wb") as fout:
-            pickle.dump(precision_map, fout)
-        logger.info("Done...")
-
-    def calc_prior_path_prob(self, output_filenm=""):
-        """
-        Calculate how probable a path is given a query relation, i.e P(path|query rel)
-        For each entity in the graph, count paths that exists for each relation in the
-        random subgraph.
-        :return:
-        """
-        logger.info("Calculating prior map")
-        programs_map = {}
-        unique_cluster_ids = set()  # have to do this since the assigned cluster ids doesnt seems to be contiguous or start from 0 or end at K-1
-        for c in self.args.cluster_assignments:
-            unique_cluster_ids.add(c)
-        for c in unique_cluster_ids:
-            for _, ((e1, r), e2_list) in enumerate(tqdm((self.train_map.items()))):
-                if self.args.cluster_assignments[self.entity_vocab[e1]] != c:
-                    # if this entity does not belong to this cluster, don't consider.
-                    continue
-                if c not in programs_map:
-                    programs_map[c] = {}
-                if r not in programs_map[c]:
-                    programs_map[c][r] = {}
-                all_paths_around_e1 = self.all_paths[e1]
-                nn_answers = e2_list
-                for nn_ans in nn_answers:
-                    programs = self.get_programs(e1, nn_ans, all_paths_around_e1)
-                    for p in programs:
-                        p = tuple(p)
-                        if len(p) == 1:
-                            if p[0] == r:  # don't store query relation
-                                continue
-                        if p not in programs_map[c][r]:
-                            programs_map[c][r][p] = 0
-                        programs_map[c][r][p] += 1
-        for c, r in programs_map.items():
-            for r, path_counts in programs_map[c].items():
-                sum_path_counts = 0
-                for p, p_c in path_counts.items():
-                    sum_path_counts += p_c
-                for p, p_c in path_counts.items():
-                    programs_map[c][r][p] = p_c / sum_path_counts
-
-        if not output_filenm:
-            dir_name = os.path.join(args.data_dir, "data", self.args.dataset_name, "linkage={}".format(self.args.linkage))
-            if not os.path.exists(dir_name):
-                os.makedirs(dir_name)
-            output_filenm = os.path.join(dir_name, "path_prior_map.pkl")
-
-        logger.info("Dumping path prior pickle at {}".format(output_filenm))
-        with open(output_filenm, "wb") as fout:
-            pickle.dump(programs_map, fout)
+    # def calc_prior_path_prob(self, output_filenm=""):
+    #     """
+    #     Calculate how probable a path is given a query relation, i.e P(path|query rel)
+    #     For each entity in the graph, count paths that exists for each relation in the
+    #     random subgraph.
+    #     :return:
+    #     """
+    #     logger.info("Calculating prior map")
+    #     programs_map = {}
+    #     unique_cluster_ids = set()  # have to do this since the assigned cluster ids doesnt seems to be contiguous or start from 0 or end at K-1
+    #     for c in self.args.cluster_assignments:
+    #         unique_cluster_ids.add(c)
+    #     for c in unique_cluster_ids:
+    #         for _, ((e1, r), e2_list) in enumerate(tqdm((self.train_map.items()))):
+    #             if self.args.cluster_assignments[self.entity_vocab[e1]] != c:
+    #                 # if this entity does not belong to this cluster, don't consider.
+    #                 continue
+    #             if c not in programs_map:
+    #                 programs_map[c] = {}
+    #             if r not in programs_map[c]:
+    #                 programs_map[c][r] = {}
+    #             all_paths_around_e1 = self.all_paths[e1]
+    #             nn_answers = e2_list
+    #             for nn_ans in nn_answers:
+    #                 programs = self.get_programs(e1, nn_ans, all_paths_around_e1)
+    #                 for p in programs:
+    #                     p = tuple(p)
+    #                     if len(p) == 1:
+    #                         if p[0] == r:  # don't store query relation
+    #                             continue
+    #                     if p not in programs_map[c][r]:
+    #                         programs_map[c][r][p] = 0
+    #                     programs_map[c][r][p] += 1
+    #     for c, r in programs_map.items():
+    #         for r, path_counts in programs_map[c].items():
+    #             sum_path_counts = 0
+    #             for p, p_c in path_counts.items():
+    #                 sum_path_counts += p_c
+    #             for p, p_c in path_counts.items():
+    #                 programs_map[c][r][p] = p_c / sum_path_counts
+    #
+    #     if not output_filenm:
+    #         dir_name = os.path.join(args.data_dir, "data", self.args.dataset_name,
+    #                                 "linkage={}".format(self.args.linkage))
+    #         if not os.path.exists(dir_name):
+    #             os.makedirs(dir_name)
+    #         output_filenm = os.path.join(dir_name, "path_prior_map.pkl")
+    #
+    #     logger.info("Dumping path prior pickle at {}".format(output_filenm))
+    #     with open(output_filenm, "wb") as fout:
+    #         pickle.dump(programs_map, fout)
 
 
 def main(args):
@@ -573,7 +569,6 @@ def main(args):
     subgraph_dir = os.path.join(args.data_dir, "subgraphs", dataset_name)
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
-
     if args.small:
         args.dev_file = os.path.join(data_dir, "dev.txt.small")
         args.test_file = os.path.join(data_dir, "test.txt")
@@ -585,29 +580,29 @@ def main(args):
     args.train_file = os.path.join(data_dir, "graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                       "train.txt")
 
-    if args.subgraph_file_name is "":
-        args.subgraph_file_name = f"paths_{args.num_paths_to_collect}_{args.max_path_len}hop"
-        if args.prevent_loops:
-            args.subgraph_file_name += "_no_loops"
-        args.subgraph_file_name += ".pkl"
-
-    if os.path.exists(os.path.join(subgraph_dir, args.subgraph_file_name)):
-        logger.info("Loading subgraph around entities:")
-        with open(os.path.join(subgraph_dir, args.subgraph_file_name), "rb") as fin:
-            all_paths = pickle.load(fin)
-    else:
-        logger.info("Sampling subgraph around entities:")
-        unique_entities = get_unique_entities(kg_file)
-        train_adj_list = create_adj_list(kg_file)
-        all_paths = defaultdict(list)
-        for ctr, e1 in enumerate(tqdm(unique_entities)):
-            paths = get_paths(args, train_adj_list, e1, max_len=args.max_path_len)
-            if paths is None:
-                continue
-            all_paths[e1] = paths
-        os.makedirs(subgraph_dir, exist_ok=True)
-        with open(os.path.join(subgraph_dir, args.subgraph_file_name), "wb") as fout:
-            pickle.dump(all_paths, fout)
+    # if len(args.subgraph_file_name) == 0:
+    #     args.subgraph_file_name = f"paths_{args.num_paths_to_collect}_{args.max_path_len}hop"
+    #     if args.prevent_loops:
+    #         args.subgraph_file_name += "_no_loops"
+    #     args.subgraph_file_name += ".pkl"
+    # if os.path.exists(os.path.join(subgraph_dir, args.subgraph_file_name)):
+    #     logger.info("Loading subgraph around entities:")
+    #     with open(os.path.join(subgraph_dir, args.subgraph_file_name), "rb") as fin:
+    #         all_paths = pickle.load(fin)
+    #     logger.info("Done...")
+    # else:
+    #     logger.info("Sampling subgraph around entities:")
+    #     unique_entities = get_unique_entities(kg_file)
+    #     train_adj_list = create_adj_list(kg_file)
+    #     all_paths = defaultdict(list)
+    #     for ctr, e1 in enumerate(tqdm(unique_entities)):
+    #         paths = get_paths(args, train_adj_list, e1, max_len=args.max_path_len)
+    #         if paths is None:
+    #             continue
+    #         all_paths[e1] = paths
+    #     os.makedirs(subgraph_dir, exist_ok=True)
+    #     with open(os.path.join(subgraph_dir, args.subgraph_file_name), "wb") as fout:
+    #         pickle.dump(all_paths, fout)
 
     entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab = create_vocab(kg_file)
     logger.info("Loading train map")
@@ -623,57 +618,85 @@ def main(args):
         eval_file = args.test_file
 
     rel_ent_map = get_entities_group_by_relation(args.train_file)
-    # Calculate nearest neighbors
-    adj_mat = read_graph(kg_file, entity_vocab, rel_vocab)
-    adj_mat = np.sqrt(adj_mat)
-    l2norm = np.linalg.norm(adj_mat, axis=-1)
-    l2norm[0] += np.finfo(np.float).eps  # to encounter zero values. These 2 indx are PAD / NULL
-    l2norm[1] += np.finfo(np.float).eps
-    adj_mat = adj_mat / l2norm.reshape(l2norm.shape[0], 1)
-
-    # Lets put this to GPU
-    adj_mat = torch.from_numpy(adj_mat)
-
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(device)
-    logger.info('Using device:'.format(device.__str__()))
-    adj_mat = adj_mat.to(device)
-
-    # get the unique entities in eval set, so that we can calculate similarity in advance.
-    eval_entities = get_unique_entities(eval_file)
+    # get the unique entities in eval set, and create a smaller eval vocab
+    eval_entities = get_unique_entities(args.dev_file)
+    test_entities = get_unique_entities(args.test_file)
+    eval_entities = eval_entities | test_entities  # take union of the two.
     eval_vocab, eval_rev_vocab = {}, {}
     query_ind = []
-
     e_ctr = 0
     for e in eval_entities:
-        try:
-            query_ind.append(entity_vocab[e])
-        except KeyError:
+        if e not in entity_vocab:
             continue
         eval_vocab[e] = e_ctr
         eval_rev_vocab[e_ctr] = e
         e_ctr += 1
-
     logger.info("=========Config:============")
     logger.info(json.dumps(vars(args), indent=4, sort_keys=True))
+
+    # making these part of args for easier access #hack
+    args.entity_vocab = entity_vocab
+    args.rel_vocab = rel_vocab
+    args.rev_entity_vocab = rev_entity_vocab
+    args.rev_rel_vocab = rev_rel_vocab
+    args.train_map = train_map
+    args.dev_map = dev_map
+    args.test_map = test_map
 
     logger.info("Loading combined train/dev/test map for filtered eval")
     all_kg_map = load_data_all_triples(args.train_file, args.dev_file, os.path.join(data_dir, 'test.txt'))
     args.all_kg_map = all_kg_map
-
+    all_paths = None  # remove
     prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
                              rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map)
+    if os.path.exists(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")):
+        with open(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl"), "rb") as fin:
+            sim_and_ind = pickle.load(fin)
+            sim = sim_and_ind["sim"]
+            arg_sim = sim_and_ind["arg_sim"]
+    else:
+        logger.info("Calculating distance matrix")
+        # Calculate nearest neighbors
+        adj_mat = utils.get_adj_mat(kg_file, entity_vocab, rel_vocab)
+        # Lets put this to GPU (if available)
+        adj_mat = torch.from_numpy(adj_mat)
 
-    logger.info("Calculating distance matrix")
-    query_ind = torch.LongTensor(query_ind).to(device)
-    # Calculate similarity
-    sim = prob_cbr_agent.calc_sim(adj_mat, query_ind)  # n X N (n== size of dev_entities, N: size of all entities)
-
-    nearest_neighbor_1_hop = np.argsort(-sim.cpu(), axis=-1)
-    prob_cbr_agent.set_nearest_neighbor_1_hop(nearest_neighbor_1_hop)
-
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        print(device)
+        logger.info('Using device:'.format(device.__str__()))
+        adj_mat = adj_mat.to(device)
+        for e in eval_entities:
+            try:
+                query_ind.append(entity_vocab[e])
+            except KeyError:
+                continue
+        query_ind = torch.LongTensor(query_ind).to(device)
+        # Calculate similarity
+        st = 0
+        sim = None
+        arg_sim = None
+        while st < query_ind.shape[0]:
+            en = min(st + args.sim_batch_size, query_ind.shape[0])
+            batch_sim = prob_cbr_agent.calc_sim(adj_mat, query_ind[
+                                                         st:en])  # n X N (n== size of dev_entities, N: size of all entities)
+            batch_sim_sorted = np.sort(-batch_sim, axis=-1)
+            batch_sim_ind = np.argsort(-batch_sim, axis=-1)
+            batch_sim = batch_sim_sorted[:, :args.k_adj]
+            batch_sim_ind = batch_sim_ind[:, :args.k_adj]
+            if sim is None:
+                sim = batch_sim
+                arg_sim = batch_sim_ind
+            else:
+                sim = np.vstack([sim, batch_sim])
+                arg_sim = np.vstack([arg_sim, batch_sim_ind])
+            st = en
+        dir_name = os.path.join(args.data_dir, "data", args.dataset_name)
+        ent_sim_dict_file = os.path.join(dir_name, "ent_sim.pkl")
+        logger.info("Writing {}".format(ent_sim_dict_file))
+        with open(ent_sim_dict_file, "wb") as fout:
+            pickle.dump({"sim": batch_sim, "arg_sim": batch_sim_ind}, fout)
+    prob_cbr_agent.set_nearest_neighbor_1_hop(arg_sim)
     # cluster entities
-
     if args.linkage > 0:
         if os.path.exists(os.path.join(data_dir, "linkage={}".format(args.linkage), "cluster_assignments.pkl")):
             logger.info("Clustering with linkage {} found, loading them....".format(args.linkage))
@@ -691,9 +714,13 @@ def main(args):
             fout = open(os.path.join(dir_name, "cluster_assignments.pkl"), "wb")
             pickle.dump(args.cluster_assignments, fout)
             fout.close()
+    else:
+        args.cluster_assignments = np.zeros(adj_mat.shape[0])
 
     path_prior_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "path_prior_map.pkl")
     if not os.path.exists(path_prior_map_filenm):
+        if not os.path.exists(os.path.dirname(path_prior_map_filenm)):
+            os.makedirs(os.path.join(data_dir, "linkage={}".format(args.linkage)))
         prob_cbr_agent.calc_prior_path_prob(output_filenm=path_prior_map_filenm)
     logger.info("Loading path prior weights")
     with open(path_prior_map_filenm, "rb") as fin:
@@ -701,14 +728,12 @@ def main(args):
 
     linkage_bck = args.linkage
     args.linkage = 0.0
-
     bck_dir_name = os.path.join(data_dir, "linkage={}".format(args.linkage))
     if not os.path.exists(bck_dir_name):
         os.makedirs(bck_dir_name)
-
     cluster_assignments_bck = args.cluster_assignments
     args.cluster_assignments = np.zeros_like(args.cluster_assignments)
-    path_prior_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "path_prior_map.pkl")
+    path_prior_map_filenm = os.path.join(bck_dir_name, "path_prior_map.pkl")
     if not os.path.exists(path_prior_map_filenm):
         prob_cbr_agent.calc_prior_path_prob(output_filenm=path_prior_map_filenm)
     logger.info("Loading fall-back path prior weights")
@@ -716,10 +741,9 @@ def main(args):
         args.path_prior_map_per_relation_fallback = pickle.load(fin)
     args.linkage = linkage_bck
     args.cluster_assignments = cluster_assignments_bck
-
     precision_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "precision_map.pkl")
     if not os.path.exists(precision_map_filenm):
-        prob_cbr_agent.calc_precision_map(output_filenm=precision_map_filenm)
+        calc_precision_map_parallel(args, output_filenm=precision_map_filenm)
     logger.info("Loading precision map")
     with open(precision_map_filenm, "rb") as fin:
         args.precision_map = pickle.load(fin)
@@ -732,7 +756,7 @@ def main(args):
     args.cluster_assignments = np.zeros_like(args.cluster_assignments)
     precision_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "precision_map.pkl")
     if not os.path.exists(precision_map_filenm):
-        prob_cbr_agent.calc_precision_map(output_filenm=precision_map_filenm)
+        calc_precision_map_parallel(args)
     logger.info("Loading fall-back precision map")
     with open(precision_map_filenm, "rb") as fin:
         args.precision_map_fallback = pickle.load(fin)
@@ -758,12 +782,22 @@ if __name__ == '__main__':
                         help="Set to 1 if want to weight paths during ranking")
     parser.add_argument("--only_preprocess", action="store_true",
                         help="If on, only calculate prior and precision maps")
+    parser.add_argument("--calculate_precision_map_parallel", action="store_true",
+                        help="If on, only calculate precision maps")
+    parser.add_argument("--combine_precision_map", action="store_true",
+                        help="If on, only combine precision maps")
+    parser.add_argument("--total_jobs", type=int, default=50,
+                        help="Total number of jobs")
+    parser.add_argument("--current_job", type=int, default=0,
+                        help="Current job id")
     # Clustering args
-    parser.add_argument("--linkage", type=float, default=0.7,
+    parser.add_argument("--linkage", type=float, default=0.8,
                         help="Clustering threshold")
     # CBR args
     parser.add_argument("--k_adj", type=int, default=5,
                         help="Number of nearest neighbors to consider based on adjacency matrix")
+    parser.add_argument("--sim_batch_size", type=int, default=128,
+                        help="Batch size to use when doing ent-ent similarity")
     parser.add_argument("--max_num_programs", type=int, default=1000)
     # Output modifier args
     parser.add_argument("--name_of_run", type=str, default="unset")
