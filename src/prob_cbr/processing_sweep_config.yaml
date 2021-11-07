@@ -1,7 +1,8 @@
 command:
 - ${interpreter}
 - ${program}
-- --calculate_precision_map_parallel
+- --add_inv_edges
+- --get_paths_parallel
 - ${args}
 program: src/prob_cbr/preprocessing.py
 method: grid
@@ -12,6 +13,8 @@ parameters:
     value: obl2021
   subgraph_file_name:
     value: combined_paths_10000_len_3_no_loops.pkl
+  num_paths_to_collect:
+    value: 10000
   expt_dir:
     value: /mnt/nfs/work1/mccallum/rajarshi/expts/obl/
   linkage:

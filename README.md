@@ -3,6 +3,19 @@
 Code for the EMNLP-Findings paper -- [Probabilistic Case-based Reasoning for Open-World Knowledge Graph Completion
 ](https://arxiv.org/abs/2010.03548)
 
+## Changes in the new version of the code
+### Collecting subgraphs around each entity
+
+We collect a subgraph around each entity in the KG. In practice, we gather a set of paths around each entity. This needs to be done once offline. If your KG 
+is relatively small, you can simply run
+
+Use the `job_id` and `total_jobs` arguments to run parallel process.
+```
+python src/prob_cbr/preprocessing.py --get_paths_parallel --add_inv_edges --current_job=0 --total_jobs=100 --dataset_name=obl2021 --num_paths_to_collect=10000 --data_dir=/home/rajarshi/Dropbox/research/Open-BIo-Link/ 
+``` 
+For our setup we use wandb and slurm to parallelize. If you have a similar setup refer to `src/prob_cbr/{processing_sweep_config.yaml, sbatch_run.sh}`.
+
+
 ## Download data
 
 Download the experiment `prob-cbr-data` from [here](http://iesl.cs.umass.edu/downloads/cbr-akbc-data), untar it in the root directory of the project.
@@ -17,25 +30,6 @@ NOTE: `data_dir` expects the path to the top level directory `prob-cbr-data`
 
 ![Prob-CBR](images/prob-cbr-base.png)
 
-### Setup
-We collect a subgraph around each entity in the KG. In practice, we gather a set of paths around each entity. This needs to be done once offline. If your KG 
-is relatively small, you can simply run
-```
-python prob_cbr/data/get_paths.py --max_len 3 --num_paths_to_collect 1000
-``` 
-Please set the ```data_dir``` and ```dataset name``` appropriately in the script.
-
-We can trivially speedup path collection by parallelizing this process to collect paths for a subset of entities. 
-To do so first run, 
-```
-python prob_cbr/data/get_paths_parallel.py --get_unique_nodes
-``` 
-This first collects the set of all unique nodes in the KG. Then we can run this process for a subset of files.
-Use the `job_id` and `total_jobs` arguments to run parallel process.
-```
-python prob_cbr/data/get_paths_parallel.py --job_id 0 --total_jobs 100
-``` 
-For our setup we use wandb and slurm to parallelize. If you have a similar setup refer to `prob_cbr/data/{path_collection_sweep_config.yaml, sbatch_run.sh}`.
 
 ### To reproduce results from the paper, run the following:
 
