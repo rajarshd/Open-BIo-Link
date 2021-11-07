@@ -11,11 +11,14 @@ import logging
 import json
 import sys
 import wandb
+import time
 
 from prob_cbr.data.data_utils import create_vocab, load_data, get_unique_entities, \
     read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
 from prob_cbr.utils import execute_one_program, get_programs, get_adj_mat
+from numpy.random import default_rng
 
+rng = default_rng()
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 ch = logging.StreamHandler()
@@ -24,6 +27,81 @@ formatter = logging.Formatter("[%(asctime)s \t %(message)s]",
                               "%Y-%m-%d %H:%M:%S")
 ch.setFormatter(formatter)
 logger.addHandler(ch)
+
+
+def get_paths(args, train_adj_list, start_node, max_len=3):
+    """
+    :param start_node:
+    :param K:
+    :param max_len:
+    :return:
+    """
+    all_paths = set()
+    for k in range(args.num_paths_to_collect):
+        path = []
+        curr_node = start_node
+        entities_on_path = set([start_node])
+        for l in range(max_len):
+            outgoing_edges = train_adj_list[curr_node]
+            if args.prevent_loops:
+                # Prevent loops
+                temp = []
+                for oe in outgoing_edges:
+                    if oe[1] in entities_on_path:
+                        continue
+                    else:
+                        temp.append(oe)
+                outgoing_edges = temp
+            if len(outgoing_edges) == 0:
+                break
+            # pick one at random
+            out_edge_idx = rng.integers(0, len(outgoing_edges), size=1)
+            out_edge = outgoing_edges[out_edge_idx[0]]
+
+            path.append(out_edge)
+            curr_node = out_edge[1]  # assign curr_node as the node of the selected edge
+            entities_on_path.add(out_edge[1])
+        all_paths.add(tuple(path))
+
+    return all_paths
+
+
+def get_paths_parallel(args, kg_file, out_dir, job_id=0, total_jobs=1):
+    """
+
+    :param kg_file:
+    :return:
+    """
+    unique_entities = get_unique_entities(kg_file)
+    num_entities = len(unique_entities)
+    logger.info("Total num unique entities are {}".format(num_entities))
+    num_entities_in_partition = num_entities / total_jobs
+    st = job_id * num_entities_in_partition
+    en = min(st + num_entities_in_partition, num_entities)
+    logger.info("Starting a job with st ind {} and end ind {}".format(st, en))
+    logger.info("Creating adj list")
+    train_adj_list = create_adj_list(kg_file, args.add_inv_edges)
+    logger.info("Done creating...")
+    st_time = time.time()
+    paths_map = defaultdict(list)
+    for ctr, e1 in enumerate(tqdm(unique_entities)):
+        if st <= ctr < en:
+            paths = get_paths(args, train_adj_list, e1, args.max_len)
+            if paths is None:
+                continue
+            paths_map[e1] = paths
+            if args.use_wandb and (ctr - st) % 100 == 0:
+                wandb.log({"progress": (ctr - st) / num_entities_in_partition})
+
+    logger.info("Took {} seconds to collect paths for {} entities".format(time.time() - st_time, len(paths_map)))
+    out_file_name = "paths_" + str(args.num_paths_to_collect) + "_path_len_" + str(args.max_len) + "_" + str(job_id)
+    if args.prevent_loops:
+        out_file_name += "_no_loops"
+    out_file_name += ".pkl"
+    fout = open(os.path.join(out_dir, out_file_name), "wb")
+    logger.info("Saving at {}".format(os.path.join(out_dir, out_file_name)))
+    pickle.dump(paths_map, fout)
+    fout.close()
 
 
 def combine_maps(dir_name, output_file_name="precision.pkl"):
@@ -223,20 +301,26 @@ def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0, total_jobs=1)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Collect subgraphs around entities")
-    parser.add_argument("--dataset_name", type=str, default="nell")
-    parser.add_argument("--data_dir", type=str, default="../prob_cbr_data/")
+    parser.add_argument("--dataset_name", type=str, default="obl2021")
+    parser.add_argument("--data_dir", type=str, default="/home/rajarshi/Dropbox/research/Open-BIo-Link/")
     parser.add_argument("--expt_dir", type=str, default="../prob_cbr_expts/")
     parser.add_argument("--subgraph_file_name", type=str, default="")
     parser.add_argument("--small", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--test_file_name", type=str, default='',
                         help="Useful to switch between test files for FB122")
+    parser.add_argument("--num_paths_to_collect", type=int, default=1000)
+    parser.add_argument("--max_len", type=int, default=3)
+    parser.add_argument("--prevent_loops", type=int, choices=[0, 1], default=1, help="prevent sampling of looped paths")
+    parser.add_argument("--add_inv_edges", action="store_true")
     parser.add_argument("--only_preprocess", action="store_true",
                         help="If on, only calculate prior and precision maps")
     parser.add_argument("--calculate_precision_map_parallel", action="store_true",
                         help="If on, only calculate precision maps")
     parser.add_argument("--calculate_prior_map_parallel", action="store_true",
                         help="If on, only calculate precision maps")
+    parser.add_argument("--get_paths_parallel", action="store_true",
+                        help="If on, collect paths around entities...")
     parser.add_argument("--combine_precision_map", action="store_true",
                         help="If on, only combine precision maps")
     parser.add_argument("--combine_prior_map", action="store_true",
@@ -250,9 +334,6 @@ if __name__ == '__main__':
     parser.add_argument("--linkage", type=float, default=0.8,
                         help="Clustering threshold")
     parser.add_argument("--use_wandb", type=int, choices=[0, 1], default=1, help="Set to 1 if using W&B")
-    # Path sampling args
-    parser.add_argument("--num_paths_to_collect", type=int, default=1000)
-    parser.add_argument("--max_path_len", type=int, default=3)
 
     args = parser.parse_args()
     logger.info('COMMAND: %s' % ' '.join(sys.argv))
@@ -272,16 +353,18 @@ if __name__ == '__main__':
     subgraph_dir = os.path.join(args.data_dir, "subgraphs", dataset_name)
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
-    if args.small:
-        args.dev_file = os.path.join(data_dir, "dev.txt.small")
-        args.test_file = os.path.join(data_dir, "test.txt")
-    else:
-        args.dev_file = os.path.join(data_dir, "dev.txt")
-        args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
-            else os.path.join(data_dir, args.test_file_name)
+    args.dev_file = os.path.join(data_dir, "dev.txt")
+    args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
+        else os.path.join(data_dir, args.test_file_name)
 
     args.train_file = os.path.join(data_dir, "graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                       "train.txt")
+    if args.get_paths_parallel:
+        kg_file = os.path.join(data_dir, "graph.txt")
+        if not os.path.exists(subgraph_dir):  # subgraph dir is the output dir
+            os.makedirs(subgraph_dir)
+        get_paths_parallel(args, kg_file, subgraph_dir, args.current_job, args.total_jobs)
+        sys.exit(0)
 
     if args.combine_prior_map:
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
@@ -384,4 +467,3 @@ if __name__ == '__main__':
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         calc_precision_map_parallel(args, dir_name, args.current_job, args.total_jobs)
-
