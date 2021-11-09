@@ -57,13 +57,30 @@ def get_paths(args, train_adj_list, start_node, max_len=3):
             # pick one at random
             out_edge_idx = rng.integers(0, len(outgoing_edges), size=1)
             out_edge = outgoing_edges[out_edge_idx[0]]
-
             path.append(out_edge)
             curr_node = out_edge[1]  # assign curr_node as the node of the selected edge
             entities_on_path.add(out_edge[1])
         all_paths.add(tuple(path))
 
     return all_paths
+
+
+def combine_path_splits(data_dir, file_prefix=None):
+    combined_paths = defaultdict(list)
+    file_names = []
+    for f in tqdm(os.listdir(data_dir)):
+        if os.path.isfile(os.path.join(data_dir, f)):
+            if file_prefix is not None:
+                if not f.startswith(file_prefix):
+                    continue
+            file_names.append(f)
+    for f in tqdm(file_names):
+        logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
+        with open(os.path.join(data_dir, f), "rb") as fin:
+            paths = pickle.load(fin)
+            for k, v in paths.items():
+                combined_paths[k] = v
+    return combined_paths
 
 
 def get_paths_parallel(args, kg_file, out_dir, job_id=0, total_jobs=1):
@@ -304,7 +321,7 @@ if __name__ == '__main__':
     parser.add_argument("--dataset_name", type=str, default="obl2021")
     parser.add_argument("--data_dir", type=str, default="/home/rajarshi/Dropbox/research/Open-BIo-Link/")
     parser.add_argument("--expt_dir", type=str, default="../prob_cbr_expts/")
-    parser.add_argument("--subgraph_file_name", type=str, default="")
+    parser.add_argument("--subgraph_file_name", type=str, default="combined_paths_10000_len_3_no_loops.pkl")
     parser.add_argument("--small", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--test_file_name", type=str, default='',
@@ -313,6 +330,7 @@ if __name__ == '__main__':
     parser.add_argument("--max_len", type=int, default=3)
     parser.add_argument("--prevent_loops", type=int, choices=[0, 1], default=1, help="prevent sampling of looped paths")
     parser.add_argument("--add_inv_edges", action="store_true")
+    parser.add_argument("--combine_paths", action="store_true")
     parser.add_argument("--only_preprocess", action="store_true",
                         help="If on, only calculate prior and precision maps")
     parser.add_argument("--calculate_precision_map_parallel", action="store_true",
@@ -350,7 +368,7 @@ if __name__ == '__main__':
     dataset_name = args.dataset_name
     logger.info("==========={}============".format(dataset_name))
     data_dir = os.path.join(args.data_dir, "data", dataset_name)
-    subgraph_dir = os.path.join(args.data_dir, "subgraphs", dataset_name)
+    subgraph_dir = os.path.join(args.data_dir, "subgraphs", dataset_name, "paths_{}".format(args.num_paths_to_collect))
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
     args.dev_file = os.path.join(data_dir, "dev.txt")
@@ -366,37 +384,18 @@ if __name__ == '__main__':
         get_paths_parallel(args, kg_file, subgraph_dir, args.current_job, args.total_jobs)
         sys.exit(0)
 
+    if args.combine_paths:
+        file_prefix = "paths_10000_path_len_3_"
+        out_file_name = "combined_paths_10000_len_3_no_loops.pkl"
+        combine_path_splits(subgraph_dir, out_file_name, file_prefix)
+        sys.exit(0)
+
     if args.combine_prior_map:
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
                                 "linkage={}".format(args.linkage), "prior_maps")
         combine_prior_maps(dir_name)
         sys.exit(0)
 
-    # if len(args.subgraph_file_name) == 0:
-    #     args.subgraph_file_name = f"paths_{args.num_paths_to_collect}_{args.max_path_len}hop"
-    #     if args.prevent_loops:
-    #         args.subgraph_file_name += "_no_loops"
-    #     args.subgraph_file_name += ".pkl"
-    # if os.path.exists(os.path.join(subgraph_dir, args.subgraph_file_name)):
-    #     logger.info("Loading subgraph around entities:")
-    #     with open(os.path.join(subgraph_dir, args.subgraph_file_name), "rb") as fin:
-    #         all_paths = pickle.load(fin)
-    #     logger.info("Done...")
-    # else:
-    #     logger.info("Sampling subgraph around entities:")
-    #     unique_entities = get_unique_entities(kg_file)
-    #     train_adj_list = create_adj_list(kg_file)
-    #     all_paths = defaultdict(list)
-    #     for ctr, e1 in enumerate(tqdm(unique_entities)):
-    #         paths = get_paths(args, train_adj_list, e1, max_len=args.max_path_len)
-    #         if paths is None:
-    #             continue
-    #         all_paths[e1] = paths
-    #     os.makedirs(subgraph_dir, exist_ok=True)
-    #     with open(os.path.join(subgraph_dir, args.subgraph_file_name), "wb") as fout:
-    #         pickle.dump(all_paths, fout)
-    #
-    # args.all_paths = all_paths
     entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab = create_vocab(kg_file)
     logger.info("Loading train map")
     train_map = load_data(kg_file)
@@ -445,6 +444,12 @@ if __name__ == '__main__':
         logger.info(
             "Calculating prior map. Current job id: {}, Total jobs: {}".format(args.current_job, args.total_jobs))
         assert args.cluster_assignments is not None
+        logger.info("Loading subgraph around entities:")
+        all_paths = combine_path_splits(subgraph_dir, file_prefix="paths_10000_path_len_3_")
+        # with open(os.path.join(subgraph_dir, args.subgraph_file_name), "rb") as fin:
+        #     all_paths = pickle.load(fin)
+        logger.info("Done...")
+        args.all_paths = all_paths
         assert args.all_paths is not None
         assert args.train_map is not None
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,

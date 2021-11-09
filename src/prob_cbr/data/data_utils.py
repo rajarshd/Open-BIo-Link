@@ -290,23 +290,6 @@ def get_inv_relation(r: str, dataset_name="nell") -> str:
 #     return [rev_rel_vocab[i] for i in nearest_rel_inds]
 
 
-# def combine_path_splits(data_dir, out_file_name, file_prefix=None):
-#     combined_paths = defaultdict(list)
-#     for f in tqdm(os.listdir(data_dir)):
-#         if os.path.isfile(os.path.join(data_dir, f)):
-#             if file_prefix is not None:
-#                 if not f.startswith(file_prefix):
-#                     continue
-#             with open(os.path.join(data_dir, f), "rb") as fin:
-#                 paths = pickle.load(fin)
-#                 for k, v in paths.items():
-#                     combined_paths[k] = v
-#     print("Dumping the combined pkl file at {}".format(os.path.join(data_dir, out_file_name)))
-#     print("Dumping the combined pkl file at {}".format(os.path.join(data_dir, out_file_name)))
-#     with open(os.path.join(data_dir, out_file_name), "wb") as fout:
-#         pickle.dump(combined_paths, fout)
-#     print("Done...")
-
 
 # if __name__ == '__main__':
 #     # data_dir = "/mnt/nfs/scratch1/rajarshi/deep_case_based_reasoning/data/harvardKG"

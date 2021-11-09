@@ -4,7 +4,7 @@
 #SBATCH --partition=longq
 #SBATCH --time=07-00:00:00
 #SBATCH --mem=80G
-#SBATCH --array=0-100
+#SBATCH --array=0-24
 
 # Set to scratch/work since server syncing will occur from here
 # Ensure sufficient space else runs crash without error message
@@ -13,4 +13,4 @@
 # If SBATCH --array flag is say 0-7 (8 jobs) then total (8 x count)
 # hyperparam settings will be tried
 conda activate obl
-wandb agent rajarshd/Open-BIo-Link-src_prob_cbr/atz24xjs
+wandb agent rajarshd/Open-BIo-Link-src_prob_cbr_preprocessing/3sjzrao0
