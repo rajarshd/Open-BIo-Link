@@ -2,7 +2,7 @@ command:
 - ${interpreter}
 - ${program}
 - --add_inv_edges
-- --get_paths_parallel
+- --calculate_precision_map_parallel
 - ${args}
 program: src/prob_cbr/preprocessing/preprocessing.py
 method: grid
