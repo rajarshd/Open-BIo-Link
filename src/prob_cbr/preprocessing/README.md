@@ -18,8 +18,6 @@ Use the `job_id` and `total_jobs` arguments to run parallel process.
 python src/prob_cbr/preprocessing.py --get_paths_parallel --add_inv_edges --current_job=0 --total_jobs=100 --dataset_name=obl2021 --num_paths_to_collect=10000 --data_dir=/home/rajarshi/Dropbox/research/Open-BIo-Link/ 
 ``` 
 For our setup we use wandb and slurm to parallelize. If you have a similar setup refer to `src/prob_cbr/preprocessing/{processing_sweep_config.yaml, sbatch_run.sh}`.
-Next to combine all the output files of each parallel process run
-```python src/prob_cbr/preprocessing.py --combine_paths --dataset_name obl2021 --data_dir /home/rajarshi/Dropbox/research/Open-BIo-Link/```
 
 ### 2. Cluster entities
 TBD (righnow linkage is set to 0, i.e. 1 cluster for all entities)
