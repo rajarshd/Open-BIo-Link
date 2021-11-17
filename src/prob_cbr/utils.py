@@ -9,12 +9,8 @@ from prob_cbr.data.data_utils import read_graph
 
 def get_adj_mat(kg_file, entity_vocab, rel_vocab):
     adj_mat = read_graph(kg_file, entity_vocab, rel_vocab)
-    adj_mat = np.sqrt(adj_mat)
     l2norm = np.linalg.norm(adj_mat, axis=-1)
-    l2norm[0] += np.finfo(np.float).eps  # to encounter zero values. These 2 indx are PAD / NULL
-    l2norm[1] += np.finfo(np.float).eps
     adj_mat = adj_mat / l2norm.reshape(l2norm.shape[0], 1)
-
     return adj_mat
 
 

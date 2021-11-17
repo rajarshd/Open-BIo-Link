@@ -3,9 +3,8 @@ from collections import defaultdict
 import numpy as np
 import tempfile
 from typing import DefaultDict, List, Tuple, Dict, Set
-from scipy.sparse import coo_matrix
 import os
-import pickle
+import json
 
 
 def augment_kb_with_inv_edges(file_name: str) -> None:
@@ -125,6 +124,19 @@ def create_vocab(kg_file: str) -> Tuple[Dict[str, int], Dict[int, str], Dict[str
 
     return entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab
 
+def load_vocab(data_dir):
+
+    entity_vocab_file = os.path.join(data_dir, "entity_vocab.json")
+    rel_vocab_file = os.path.join(data_dir, "relation_vocab.json")
+    eval_vocab_file = os.path.join(data_dir, "eval_vocab.json")
+    all_vocabs = []
+    for file_name in [entity_vocab_file, rel_vocab_file, eval_vocab_file]:
+        with open(file_name) as fin:
+            vocab = json.load(fin)
+            rev_vocab = {v: k for k, v in vocab.items()}
+            all_vocabs.append(vocab)
+            all_vocabs.append(rev_vocab)
+    return all_vocabs
 
 # def create_vocab_wikidata(file_name: str) -> Tuple[Dict[str, int], Dict[str, int]]:
 #     vocab, rev_vocab = {}, {}
@@ -141,14 +153,13 @@ def create_vocab(kg_file: str) -> Tuple[Dict[str, int], Dict[int, str], Dict[str
 
 def read_graph(file_name: str, entity_vocab: Dict[str, int], rel_vocab: Dict[str, int]) -> np.ndarray:
     adj_mat = np.zeros((len(entity_vocab), len(rel_vocab)))
-    fin = open(file_name)
-    for line in tqdm(fin):
-        line = line.strip()
-        e1, r, e2 = line.split("\t")
-        adj_mat[entity_vocab[e1], rel_vocab[r]] = 1
-        r_inv = r + "_inv"
-        adj_mat[entity_vocab[e2], rel_vocab[r_inv]] = 1
-
+    with open(file_name) as fin:
+        for line in tqdm(fin):
+            line = line.strip()
+            e1, r, e2 = line.split("\t")
+            adj_mat[entity_vocab[e1], rel_vocab[r]] += 1
+            r_inv = r + "_inv"
+            adj_mat[entity_vocab[e2], rel_vocab[r_inv]] += 1
     return adj_mat
 
 
