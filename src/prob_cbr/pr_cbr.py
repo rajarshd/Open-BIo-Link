@@ -197,7 +197,8 @@ class ProbCBR(object):
         return all_answers, not_executed_paths
 
     @staticmethod
-    def rank_answers(list_answers: List[Tuple[str, float, List[str]]]) -> List[str]:
+    def rank_answers(list_answers: List[Tuple[str, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
+        str]:
         """
         Different ways to re-rank answers
         """
@@ -207,14 +208,26 @@ class ProbCBR(object):
             if e not in count_map:
                 count_map[e] = {}
             if path not in count_map[e]:
-                count_map[e][path] = e_score  # just count once for a path type.
+                if aggr_type1 == "none":
+                    count_map[e][path] = e_score  # just count once for a path type.
+                elif aggr_type1 == "sum":
+                    if path not in count_map[e]:
+                        count_map[e][path] = 0
+                    count_map[e][path] += e_score  # aggregate for each path
+                else:
+                    raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
             uniq_entities.add(e)
         score_map = defaultdict(int)
         for e, path_scores_map in count_map.items():
-            sum_path_score = 0
-            for p, p_score in path_scores_map.items():
-                sum_path_score += p_score
-            score_map[e] = sum_path_score
+            p_scores = [v for k, v in path_scores_map.items()]
+            if aggr_type2 == "sum":
+                score_map[e] = np.sum(p_scores)
+            elif aggr_type2 == "max":
+                score_map[e] = np.max(p_scores)
+            elif aggr_type2 == "noisy_or":
+                score_map[e] = 1 - np.prod(1 - np.asarray(p_scores))
+            else:
+                raise NotImplementedError("{} aggr_type2 is invalid".format(aggr_type2))
 
         sorted_entities_by_val = sorted(score_map.items(), key=lambda kv: -kv[1])
         return sorted_entities_by_val
@@ -343,8 +356,8 @@ class ProbCBR(object):
             all_uniq_programs = self.rank_programs(all_programs, r)
             num_programs.append(len(all_uniq_programs))
             # Now execute the program
-            answers, not_executed_programs = self.execute_programs(e1, r, all_uniq_programs)
-            answers = self.rank_answers(answers)
+            answers, not_executed_programs = self.execute_programs(e1, r, all_uniq_programs, max_branch=args.max_branch)
+            answers = self.rank_answers(answers, self.args.aggr_type1, self.args.aggr_type2)
             if len(answers) > 0:
                 acc = self.get_accuracy(e2_list, [k[0] for k in answers])
                 _10, _5, _3, _1, rr = self.get_hits([k[0] for k in answers], e2_list, query=(e1, r))
@@ -462,7 +475,8 @@ def main(args):
     args.test_map = test_map
 
     logger.info("Loading combined train/dev/test map for filtered eval")
-    all_kg_map = load_data_all_triples(args.train_file, args.dev_file, os.path.join(data_dir, 'test.txt'))
+    all_kg_map = load_data_all_triples(args.train_file, os.path.join(data_dir, 'dev.txt'),
+                                       os.path.join(data_dir, 'test.txt'))
     args.all_kg_map = all_kg_map
 
     ########### Load all paths ###########
@@ -578,8 +592,16 @@ if __name__ == '__main__':
     parser.add_argument("--num_paths_around_entities", type=int, default=1000)
     parser.add_argument("--max_path_len", type=int, default=3)
     parser.add_argument("--prevent_loops", type=int, choices=[0, 1], default=1)
+    parser.add_argument("--max_branch", type=int, default=100)
+    parser.add_argument("--aggr_type1", type=str, default="none", help="none/sum")
+    parser.add_argument("--aggr_type2", type=str, default="sum", help="sum/max/noisy_or")
 
     args = parser.parse_args()
+    if args.aggr_type2 == "noisy_or":
+        if args.aggr_type1 == "sum":
+            logger.info("aggr_type1 cannot be sum, when aggr_type2 is noisy_or, exiting...")
+            sys.exit(0)
+
     logger.info('COMMAND: %s' % ' '.join(sys.argv))
     if args.use_wandb:
         wandb.init(project='pr-cbr')

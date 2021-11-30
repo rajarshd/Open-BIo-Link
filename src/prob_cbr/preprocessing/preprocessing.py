@@ -66,7 +66,9 @@ def get_paths(args, train_adj_list, start_node, max_len=3):
 
 
 def combine_path_splits(data_dir, file_prefix=None):
+
     combined_paths = defaultdict(list)
+    # combined_paths = []
     file_names = []
     for f in tqdm(os.listdir(data_dir)):
         if os.path.isfile(os.path.join(data_dir, f)):
@@ -75,11 +77,14 @@ def combine_path_splits(data_dir, file_prefix=None):
                     continue
             file_names.append(f)
     for f in tqdm(file_names):
-        # logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
+        logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
         with open(os.path.join(data_dir, f), "rb") as fin:
             paths = pickle.load(fin)
+            # combined_paths.append(paths)
             for k, v in paths.items():
                 combined_paths[k] = v
+    # import pdb
+    # pdb.set_trace()
     return combined_paths
 
 
@@ -132,6 +137,7 @@ def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
     logger.info("Combining precision map located in {}".format(dir_name))
     for filename in os.listdir(dir_name):
         if filename.endswith("_precision_map.pkl"):
+            logger.info("Reading filename {}".format(filename))
             with open(os.path.join(dir_name, filename), "rb") as fin:
                 count_maps = pickle.load(fin)
                 all_numerator_maps.append(count_maps["numerator_map"])
@@ -541,7 +547,11 @@ if __name__ == '__main__':
             fout = open(os.path.join(dir_name, "cluster_assignments.pkl"), "wb")
             pickle.dump(args.cluster_assignments, fout)
             fout.close()
-        sys.exit(0)
+
+    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
+    logger.info("Loading cluster assignments of entities from {}".format(os.path.join(dir_name, "cluster_assignments.pkl")))
+    with open(os.path.join(dir_name, "cluster_assignments.pkl"), "rb") as fin:
+        args.cluster_assignments = pickle.load(fin)
 
     if args.calculate_prior_map_parallel:
         logger.info(
@@ -550,8 +560,6 @@ if __name__ == '__main__':
         logger.info("Loading subgraph around entities:")
         file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_to_collect, args.max_len)
         all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
-        # with open(os.path.join(subgraph_dir, args.subgraph_file_name), "rb") as fin:
-        #     all_paths = pickle.load(fin)
         logger.info("Done...")
         args.all_paths = all_paths
         assert args.all_paths is not None

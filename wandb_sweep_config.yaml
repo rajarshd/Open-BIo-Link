@@ -1,0 +1,41 @@
+command:
+- ${interpreter}
+- ${program}
+- --small
+- --output_per_relation_scores
+- ${args}
+name: OBL-small
+program: src/prob_cbr/pr_cbr.py
+method: bayes
+metric:
+  goal: maximize
+  name: hits_10
+parameters:
+  dataset_name:
+    value: "obl2021"
+  data_dir:
+    value: "/home/rajarshi/Dropbox/research/Open-BIo-Link/"
+  max_num_programs:
+    min: 4
+    max: 250
+  k_adj:
+    min: 2
+    max: 50
+  max_branch:
+    min: 10
+    max: 50
+  linkage:
+    value: 0
+  use_path_counts:
+    value: 1
+  aggr_type1:
+    values:
+      - "none"
+      - "sum"
+  aggr_type2:
+    values:
+      - "sum"
+      - "max"
+      - "noisy_or"
+  use_wandb:
+    value: 1
