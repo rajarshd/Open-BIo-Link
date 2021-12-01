@@ -1,5 +1,6 @@
 import argparse
 import numpy as np
+from scipy.special import logsumexp
 import os
 from tqdm import tqdm
 from collections import defaultdict
@@ -95,8 +96,11 @@ class ProbCBR(object):
         path_and_scores = []
         for p in unique_programs:
             try:
-                path_and_scores.append(
-                    (p, self.args.path_prior_map_per_relation[self.c][r][p] * self.args.precision_map[self.c][r][p]))
+                if self.args.use_only_precision_scores:
+                    path_and_scores.append((p, self.args.precision_map[self.c][r][p]))
+                else:
+                    path_and_scores.append((p, self.args.path_prior_map_per_relation[self.c][r][p] *
+                                            self.args.precision_map[self.c][r][p]))
             except KeyError:
                 # TODO: Fix key error
                 if len(p) == 1 and p[0] == r:
@@ -105,8 +109,11 @@ class ProbCBR(object):
                     # use the fall back score
                     try:
                         c = 0
-                        score = self.args.path_prior_map_per_relation_fallback[c][r][p] * \
-                                self.args.precision_map_fallback[c][r][p]
+                        if self.args.use_only_precision_scores:
+                            score = self.args.precision_map_fallback[c][r][p]
+                        else:
+                            score = self.args.path_prior_map_per_relation_fallback[c][r][p] * \
+                                    self.args.precision_map_fallback[c][r][p]
                         path_and_scores.append((p, score))
                     except KeyError:
                         # still a path or rel is missing.
@@ -202,6 +209,34 @@ class ProbCBR(object):
         """
         Different ways to re-rank answers
         """
+
+        def rank_entities_by_max_score(score_map):
+            """
+            sorts wrt top value. If there are same values, then it sorts wrt the second value
+            :param score_map:
+            :return:
+            """
+            # sort wrt the max value
+            sorted_score_map = sorted(score_map.items(), key=lambda kv: -kv[1][0])
+            sorted_score_map_second_round = []
+            temp = []
+            curr_val = sorted_score_map[0][1][0]  # value of the first
+            for (k, v) in sorted_score_map:
+                if v[0] == curr_val:
+                    temp.append((k, v))
+                else:
+                    sorted_temp = sorted(temp, key=lambda kv: -kv[1][1] if len(
+                        kv[1]) > 1 else 1)  # sort wrt second highest score
+                    sorted_score_map_second_round += sorted_temp
+                    temp = [(k, v)]  # clear temp and add new val
+                    curr_val = v[0]  # calculate new curr_val
+            # do the same for remaining elements in temp
+            if len(temp) > 0:
+                sorted_temp = sorted(temp,
+                                     key=lambda kv: -kv[1][1] if len(kv[1]) > 1 else 1)  # sort wrt second highest score
+                sorted_score_map_second_round += sorted_temp
+            return sorted_score_map_second_round
+
         count_map = {}
         uniq_entities = set()
         for e, e_score, path in list_answers:
@@ -223,13 +258,17 @@ class ProbCBR(object):
             if aggr_type2 == "sum":
                 score_map[e] = np.sum(p_scores)
             elif aggr_type2 == "max":
-                score_map[e] = np.max(p_scores)
+                score_map[e] = sorted(p_scores, reverse=True)
             elif aggr_type2 == "noisy_or":
                 score_map[e] = 1 - np.prod(1 - np.asarray(p_scores))
+            elif aggr_type2 == "logsumexp":
+                score_map[e] = logsumexp(p_scores)
             else:
                 raise NotImplementedError("{} aggr_type2 is invalid".format(aggr_type2))
-
-        sorted_entities_by_val = sorted(score_map.items(), key=lambda kv: -kv[1])
+        if aggr_type2 == "max":
+            sorted_entities_by_val = rank_entities_by_max_score(score_map)
+        else:
+            sorted_entities_by_val = sorted(score_map.items(), key=lambda kv: -kv[1])
         return sorted_entities_by_val
 
     @staticmethod
@@ -594,7 +633,8 @@ if __name__ == '__main__':
     parser.add_argument("--prevent_loops", type=int, choices=[0, 1], default=1)
     parser.add_argument("--max_branch", type=int, default=100)
     parser.add_argument("--aggr_type1", type=str, default="none", help="none/sum")
-    parser.add_argument("--aggr_type2", type=str, default="sum", help="sum/max/noisy_or")
+    parser.add_argument("--aggr_type2", type=str, default="sum", help="sum/max/noisy_or/logsumexp")
+    parser.add_argument("--use_only_precision_scores", action="store_true")
 
     args = parser.parse_args()
     if args.aggr_type2 == "noisy_or":
