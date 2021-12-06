@@ -18,14 +18,12 @@ from prob_cbr.utils import get_programs
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
     read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
 
-logger = logging.getLogger('main')
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter("[%(asctime)s \t %(message)s]",
-                              "%Y-%m-%d %H:%M:%S")
-ch.setFormatter(formatter)
-logger.addHandler(ch)
+logger = logging.getLogger()
+logging.basicConfig(
+    format="%(asctime)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO
+)
 
 
 class ProbCBR(object):
@@ -146,7 +144,7 @@ class ProbCBR(object):
 
         return sorted_programs
 
-    def execute_one_program(self, e: str, path: List[str], depth: int, max_branch: int):
+    def execute_one_program(self, e: str, path: List[str], depth: int, max_branch: int) -> np.ndarray:
         """
         starts from an entity and executes the path by doing depth first search. If there are multiple edges with the same label, we consider
         max_branch number.
@@ -157,11 +155,10 @@ class ProbCBR(object):
         for r in path:
             ent_vec = self.sparse_adj_mats[r] * ent_vec
         final_counts = ent_vec.toarray().reshape(-1)
-        answers = [self.rev_entity_vocab[d_e] for d_e, d_c in enumerate(final_counts) for _ in range(d_c)]
-        return answers
+        return final_counts
 
     def execute_programs(self, e: str, r: str, path_list: List[List[str]], max_branch: Optional[int] = 1000) \
-            -> Tuple[List[Tuple[str, float, List[str]]], List[List[str]]]:
+            -> Tuple[List[Tuple[np.ndarray, float, List[str]]], List[List[str]]]:
 
         def _fall_back(r, p):
             """
@@ -188,7 +185,6 @@ class ProbCBR(object):
             if executed_path_counter == self.args.max_num_programs:
                 break
             ans = self.execute_one_program(e, path, depth=0, max_branch=max_branch)
-            temp = []
             if self.args.use_path_counts:
                 try:
                     if path in self.args.path_prior_map_per_relation[self.c][r] and path in \
@@ -204,21 +200,17 @@ class ProbCBR(object):
                     path_score = _fall_back(r, path)
             else:
                 path_score = 1
-            for a in ans:
-                path = tuple(path)
-                temp.append((a, path_score, path))
-            ans = temp
-            if ans == []:
+            path = tuple(path)
+            if len(np.nonzero(ans)[0]) == 0:
                 not_executed_paths.append(path)
                 execution_fail_counter += 1
             else:
                 executed_path_counter += 1
-            all_answers += ans
+            all_answers += [(ans, path_score, path)]
         self.num_non_executable_programs.append(execution_fail_counter)
         return all_answers, not_executed_paths
 
-    @staticmethod
-    def rank_answers(list_answers: List[Tuple[str, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
+    def rank_answers(self, list_answers: List[Tuple[np.ndarray, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
         str]:
         """
         Different ways to re-rank answers
@@ -253,18 +245,18 @@ class ProbCBR(object):
 
         count_map = {}
         uniq_entities = set()
-        for e, e_score, path in list_answers:
-            if e not in count_map:
-                count_map[e] = {}
-            if aggr_type1 == "none":
-                count_map[e][path] = e_score  # just count once for a path type.
-            elif aggr_type1 == "sum":
-                if path not in count_map[e]:
-                    count_map[e][path] = 0
-                count_map[e][path] += e_score  # aggregate for each path
-            else:
-                raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
-            uniq_entities.add(e)
+        for e_vec, e_score, path in list_answers:
+            path_answers = [(self.rev_entity_vocab[d_e], e_vec[d_e]) for d_e in np.nonzero(e_vec)[0]]
+            for e, e_c in path_answers:
+                if e not in count_map:
+                    count_map[e] = {}
+                if aggr_type1 == "none":
+                    count_map[e][path] = e_score  # just count once for a path type.
+                elif aggr_type1 == "sum":
+                    count_map[e][path] = e_score * e_c   # aggregate for each path
+                else:
+                    raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
+                uniq_entities.add(e)
         score_map = defaultdict(int)
         for e, path_scores_map in count_map.items():
             p_scores = [v for k, v in path_scores_map.items()]
