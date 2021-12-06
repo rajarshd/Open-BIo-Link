@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 from scipy.special import logsumexp
+import scipy.sparse
 import os
 from tqdm import tqdm
 from collections import defaultdict
@@ -41,6 +42,27 @@ class ProbCBR(object):
         self.rel_ent_map = rel_ent_map
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
+        self.sparse_adj_mats = {}
+        self.create_sparse_adj_mats()
+
+    def create_sparse_adj_mats(self):
+        logger.info("Building sparse adjacency matrices")
+        csr_data, csr_row, csr_col = {}, {}, {}
+        for (e1, r), e2_list in self.train_map.items():
+            _ = csr_data.setdefault(r, [])
+            _ = csr_row.setdefault(r, [])
+            _ = csr_col.setdefault(r, [])
+            for e2 in e2_list:
+                csr_data[r].append(1)
+                csr_row[r].append(self.entity_vocab[e2])
+                csr_col[r].append(self.entity_vocab[e1])
+        for r in self.rel_vocab:
+            self.sparse_adj_mats[r] = scipy.sparse.csr_matrix((np.array(csr_data[r], dtype=np.uint32),  # data
+                                                               (np.array(csr_row[r], dtype=np.int64),  # row
+                                                                np.array(csr_col[r], dtype=np.int64))  # col
+                                                               ),
+                                                              shape=(len(self.entity_vocab), len(self.entity_vocab))
+                                                              )
 
     def set_nearest_neighbor_1_hop(self, nearest_neighbor_1_hop):
         self.nearest_neighbor_1_hop = nearest_neighbor_1_hop
@@ -129,21 +151,13 @@ class ProbCBR(object):
         starts from an entity and executes the path by doing depth first search. If there are multiple edges with the same label, we consider
         max_branch number.
         """
-        if depth == len(path):
-            # reached end, return node
-            return [e]
-        next_rel = path[depth]
-        next_entities = self.train_map[(e, path[depth])]
-        # next_entities = list(set(self.train_map[(e, path[depth])] + self.args.rotate_edges[(e, path[depth])][:5]))
-        if len(next_entities) == 0:
-            # edge not present
-            return []
-        if len(next_entities) > max_branch:
-            # select max_branch random entities
-            next_entities = np.random.choice(next_entities, max_branch, replace=False).tolist()
-        answers = []
-        for e_next in next_entities:
-            answers += self.execute_one_program(e_next, path, depth + 1, max_branch)
+        src_vec = np.zeros((len(self.entity_vocab), 1), dtype=np.uint32)
+        src_vec[self.entity_vocab[e]] = 1
+        ent_vec = scipy.sparse.csr_matrix(src_vec)
+        for r in path:
+            ent_vec = self.sparse_adj_mats[r] * ent_vec
+        final_counts = ent_vec.toarray().reshape(-1)
+        answers = [self.rev_entity_vocab[d_e] for d_e, d_c in enumerate(final_counts) for _ in range(d_c)]
         return answers
 
     def execute_programs(self, e: str, r: str, path_list: List[List[str]], max_branch: Optional[int] = 1000) \
