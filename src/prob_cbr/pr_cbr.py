@@ -256,15 +256,14 @@ class ProbCBR(object):
         for e, e_score, path in list_answers:
             if e not in count_map:
                 count_map[e] = {}
-            if path not in count_map[e]:
-                if aggr_type1 == "none":
-                    count_map[e][path] = e_score  # just count once for a path type.
-                elif aggr_type1 == "sum":
-                    if path not in count_map[e]:
-                        count_map[e][path] = 0
-                    count_map[e][path] += e_score  # aggregate for each path
-                else:
-                    raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
+            if aggr_type1 == "none":
+                count_map[e][path] = e_score  # just count once for a path type.
+            elif aggr_type1 == "sum":
+                if path not in count_map[e]:
+                    count_map[e][path] = 0
+                count_map[e][path] += e_score  # aggregate for each path
+            else:
+                raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
             uniq_entities.add(e)
         score_map = defaultdict(int)
         for e, path_scores_map in count_map.items():
