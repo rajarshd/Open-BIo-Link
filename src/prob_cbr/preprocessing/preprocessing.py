@@ -76,7 +76,7 @@ def combine_path_splits(data_dir, file_prefix=None):
                 if not f.startswith(file_prefix):
                     continue
             file_names.append(f)
-    for f in tqdm(file_names):
+    for f in file_names:
         logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
         with open(os.path.join(data_dir, f), "rb") as fin:
             paths = pickle.load(fin)
