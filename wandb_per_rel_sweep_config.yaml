@@ -1,0 +1,105 @@
+command:
+- ${interpreter}
+- ${program}
+- --small
+- ${args}
+project: pr-cbr
+name: OBL-small-per-relation
+program: prob_cbr/pr_cbr.py
+method: random
+metric:
+  goal: maximize
+  name: hits_10
+parameters:
+  dataset_name:
+    value: "obl2021"
+  data_dir:
+    value: "/mnt/nfs/work1/pthomas/agodbole/Open-BIo-Link/"
+  max_num_programs:
+    min: 1
+    max: 250
+  k_adj:
+    min: 2
+    max: 50
+  cheat_neighbors:
+    values:
+      - 0
+      - 1
+  linkage:
+    value: 0
+  use_path_counts:
+    value: 1
+  aggr_type1:
+    values:
+      - "none"
+      - "sum"
+  aggr_type2:
+    values:
+      - "sum"
+      - "max"
+      - "noisy_or"
+      - "logsumexp"
+  use_only_precision_scores:
+    values:
+      - 0
+      - 1
+  specific_rel:
+    values:
+      - 0
+      - 1
+      - 2
+      - 3
+      - 4
+      - 5
+      - 6
+      - 7
+      - 8
+      - 9
+      - 10
+      - 11
+      - 12
+      - 13
+      - 14
+      - 15
+      - 16
+      - 17
+      - 18
+      - 19
+      - 20
+      - 21
+      - 22
+      - 23
+      - 24
+      - 25
+      - 26
+      - 27
+      - 28
+      - 29
+      - 30
+      - 31
+      - 32
+      - 33
+      - 34
+      - 35
+      - 36
+      - 37
+      - 38
+      - 39
+      - 40
+      - 41
+      - 42
+      - 43
+      - 44
+      - 45
+      - 46
+      - 47
+      - 48
+      - 49
+      - 50
+      - 51
+      - 52
+      - 53
+      - 54
+      - 55
+  use_wandb:
+    value: 1

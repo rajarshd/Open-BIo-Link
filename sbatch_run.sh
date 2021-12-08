@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=Prob-CBR
-#SBATCH --output=/mnt/nfs/scratch1/rajarshi/deep_case_based_reasoning/compute_prior_maps-%A_%a.out
+#SBATCH --output=logs/obl-small-per-relation-%A_%a.out
 #SBATCH --partition=longq
 #SBATCH --time=07-00:00:00
-#SBATCH --mem=40G
+#SBATCH --mem=10G
 #SBATCH --array=0-29
 
 # Set to scratch/work since server syncing will occur from here
@@ -13,4 +13,15 @@
 # If SBATCH --array flag is say 0-7 (8 jobs) then total (8 x count)
 # hyperparam settings will be tried
 conda activate obl
-wandb agent rajarshd/Open-BIo-Link-src_prob_cbr/9neli3pq
+#wandb agent rajarshd/Open-BIo-Link-src_prob_cbr/9neli3pq
+
+source /mnt/nfs/work1/pthomas/agodbole/Open-BIo-Link/wandb_settings.sh
+export WANDB_DIR="./wandb_dir/"
+export TMPDIR="./tmp_dir/"
+export PYTHONUNBUFFERED=1
+pwd
+
+#conda activate pyenv
+cd src
+export PYTHONPATH=`pwd`:$PYTHONPATH
+wandb agent ameyag416/pr-cbr/guwx3wex
