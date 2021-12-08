@@ -88,7 +88,15 @@ class ProbCBR(object):
     def get_programs_from_nearest_neighbors(self, e1: str, r: str, nn_func: Callable, num_nn: Optional[int] = 5):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
-        if nearest_entities is None:
+        if (nearest_entities is None or len(nearest_entities) == 0) and self.args.cheat_neighbors:
+            num_ent_with_r = len(self.rel_ent_map[r])
+            if num_ent_with_r > 0:
+                if num_ent_with_r < num_nn:
+                    nearest_entities = self.rel_ent_map[r]
+                else:
+                    random_idx = np.random.choice(num_ent_with_r, num_nn, replace=False)
+                    nearest_entities = [self.rel_ent_map[r][r_idx] for r_idx in random_idx]
+        if nearest_entities is None or len(nearest_entities) == 0:
             self.all_num_ret_nn.append(0)
             return None
         self.all_num_ret_nn.append(len(nearest_entities))
@@ -628,6 +636,8 @@ if __name__ == '__main__':
     # CBR args
     parser.add_argument("--k_adj", type=int, default=5,
                         help="Number of nearest neighbors to consider based on adjacency matrix")
+    parser.add_argument("--cheat_neighbors", type=int, default=0,
+                        help="When adjacency fails to return neighbors, use any entities which have query relation")
     parser.add_argument("--max_num_programs", type=int, default=1000)
     # Output modifier args
     parser.add_argument("--name_of_run", type=str, default="unset")
