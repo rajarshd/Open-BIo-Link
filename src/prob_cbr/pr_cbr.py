@@ -483,10 +483,12 @@ def main(args):
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
     if args.small:
-        args.dev_file = os.path.join(data_dir, "dev.txt.small")
+        args.dev_file = os.path.join(data_dir,
+                                     "dev.txt.small" if args.specific_rel is None else f"dev.{args.specific_rel}.txt.small")
         args.test_file = os.path.join(data_dir, "test.txt")
     else:
-        args.dev_file = os.path.join(data_dir, "dev.txt")
+        args.dev_file = os.path.join(data_dir,
+                                     "dev.txt" if args.specific_rel is None else f"dev.{args.specific_rel}.txt")
         args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
             else os.path.join(data_dir, args.test_file_name)
 
@@ -495,7 +497,7 @@ def main(args):
     logger.info("Loading train map")
     train_map = load_data(kg_file)
     logger.info("Loading dev map")
-    dev_map = load_data(args.dev_file)
+    dev_map = load_data(args.dev_file, True if args.specific_rel is None else False)
     logger.info("Loading test map")
     test_map = load_data(args.test_file)
     eval_map = dev_map
@@ -639,7 +641,8 @@ if __name__ == '__main__':
     parser.add_argument("--max_branch", type=int, default=100)
     parser.add_argument("--aggr_type1", type=str, default="none", help="none/sum")
     parser.add_argument("--aggr_type2", type=str, default="sum", help="sum/max/noisy_or/logsumexp")
-    parser.add_argument("--use_only_precision_scores", action="store_true")
+    parser.add_argument("--use_only_precision_scores", type=int, default=0)
+    parser.add_argument("--specific_rel", type=int, default=None)
 
     args = parser.parse_args()
     if args.aggr_type2 == "noisy_or":
