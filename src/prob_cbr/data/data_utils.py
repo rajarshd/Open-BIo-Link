@@ -52,7 +52,7 @@ def create_adj_list(file_name: str, add_inv_edges=True) -> DefaultDict[str, List
 #     return out_map
 
 
-def load_data(file_name: str) -> DefaultDict[Tuple[str, str], list]:
+def load_data(file_name: str, add_inv_rel: bool=True) -> DefaultDict[Tuple[str, str], list]:
     out_map = defaultdict(list)
     fin = open(file_name)
 
@@ -60,9 +60,10 @@ def load_data(file_name: str) -> DefaultDict[Tuple[str, str], list]:
         line = line.strip()
         e1, r, e2 = line.split("\t")
         out_map[(e1, r)].append(e2)
-        # add inv relations
-        r_inv = r + "_inv"
-        out_map[(e2, r_inv)].append(e1)
+        if add_inv_rel:
+            # add inv relations
+            r_inv = r + "_inv"
+            out_map[(e2, r_inv)].append(e1)
 
     return out_map
 

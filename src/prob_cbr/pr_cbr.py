@@ -1,6 +1,7 @@
 import argparse
 import numpy as np
 from scipy.special import logsumexp
+import scipy.sparse
 import os
 from tqdm import tqdm
 from collections import defaultdict
@@ -17,14 +18,12 @@ from prob_cbr.utils import get_programs
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
     read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
 
-logger = logging.getLogger('main')
-logger.setLevel(logging.INFO)
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-formatter = logging.Formatter("[%(asctime)s \t %(message)s]",
-                              "%Y-%m-%d %H:%M:%S")
-ch.setFormatter(formatter)
-logger.addHandler(ch)
+logger = logging.getLogger()
+logging.basicConfig(
+    format="%(asctime)s - %(message)s",
+    datefmt="%m/%d/%Y %H:%M:%S",
+    level=logging.INFO
+)
 
 
 class ProbCBR(object):
@@ -41,6 +40,27 @@ class ProbCBR(object):
         self.rel_ent_map = rel_ent_map
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
+        self.sparse_adj_mats = {}
+        self.create_sparse_adj_mats()
+
+    def create_sparse_adj_mats(self):
+        logger.info("Building sparse adjacency matrices")
+        csr_data, csr_row, csr_col = {}, {}, {}
+        for (e1, r), e2_list in self.train_map.items():
+            _ = csr_data.setdefault(r, [])
+            _ = csr_row.setdefault(r, [])
+            _ = csr_col.setdefault(r, [])
+            for e2 in e2_list:
+                csr_data[r].append(1)
+                csr_row[r].append(self.entity_vocab[e2])
+                csr_col[r].append(self.entity_vocab[e1])
+        for r in self.rel_vocab:
+            self.sparse_adj_mats[r] = scipy.sparse.csr_matrix((np.array(csr_data[r], dtype=np.uint32),  # data
+                                                               (np.array(csr_row[r], dtype=np.int64),  # row
+                                                                np.array(csr_col[r], dtype=np.int64))  # col
+                                                               ),
+                                                              shape=(len(self.entity_vocab), len(self.entity_vocab))
+                                                              )
 
     def set_nearest_neighbor_1_hop(self, nearest_neighbor_1_hop):
         self.nearest_neighbor_1_hop = nearest_neighbor_1_hop
@@ -68,7 +88,15 @@ class ProbCBR(object):
     def get_programs_from_nearest_neighbors(self, e1: str, r: str, nn_func: Callable, num_nn: Optional[int] = 5):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
-        if nearest_entities is None:
+        if (nearest_entities is None or len(nearest_entities) == 0) and self.args.cheat_neighbors:
+            num_ent_with_r = len(self.rel_ent_map[r])
+            if num_ent_with_r > 0:
+                if num_ent_with_r < num_nn:
+                    nearest_entities = self.rel_ent_map[r]
+                else:
+                    random_idx = np.random.choice(num_ent_with_r, num_nn, replace=False)
+                    nearest_entities = [self.rel_ent_map[r][r_idx] for r_idx in random_idx]
+        if nearest_entities is None or len(nearest_entities) == 0:
             self.all_num_ret_nn.append(0)
             return None
         self.all_num_ret_nn.append(len(nearest_entities))
@@ -124,30 +152,21 @@ class ProbCBR(object):
 
         return sorted_programs
 
-    def execute_one_program(self, e: str, path: List[str], depth: int, max_branch: int):
+    def execute_one_program(self, e: str, path: List[str], depth: int, max_branch: int) -> np.ndarray:
         """
         starts from an entity and executes the path by doing depth first search. If there are multiple edges with the same label, we consider
         max_branch number.
         """
-        if depth == len(path):
-            # reached end, return node
-            return [e]
-        next_rel = path[depth]
-        next_entities = self.train_map[(e, path[depth])]
-        # next_entities = list(set(self.train_map[(e, path[depth])] + self.args.rotate_edges[(e, path[depth])][:5]))
-        if len(next_entities) == 0:
-            # edge not present
-            return []
-        if len(next_entities) > max_branch:
-            # select max_branch random entities
-            next_entities = np.random.choice(next_entities, max_branch, replace=False).tolist()
-        answers = []
-        for e_next in next_entities:
-            answers += self.execute_one_program(e_next, path, depth + 1, max_branch)
-        return answers
+        src_vec = np.zeros((len(self.entity_vocab), 1), dtype=np.uint32)
+        src_vec[self.entity_vocab[e]] = 1
+        ent_vec = scipy.sparse.csr_matrix(src_vec)
+        for r in path:
+            ent_vec = self.sparse_adj_mats[r] * ent_vec
+        final_counts = ent_vec.toarray().reshape(-1)
+        return final_counts
 
     def execute_programs(self, e: str, r: str, path_list: List[List[str]], max_branch: Optional[int] = 1000) \
-            -> Tuple[List[Tuple[str, float, List[str]]], List[List[str]]]:
+            -> Tuple[List[Tuple[np.ndarray, float, List[str]]], List[List[str]]]:
 
         def _fall_back(r, p):
             """
@@ -174,7 +193,6 @@ class ProbCBR(object):
             if executed_path_counter == self.args.max_num_programs:
                 break
             ans = self.execute_one_program(e, path, depth=0, max_branch=max_branch)
-            temp = []
             if self.args.use_path_counts:
                 try:
                     if path in self.args.path_prior_map_per_relation[self.c][r] and path in \
@@ -190,21 +208,17 @@ class ProbCBR(object):
                     path_score = _fall_back(r, path)
             else:
                 path_score = 1
-            for a in ans:
-                path = tuple(path)
-                temp.append((a, path_score, path))
-            ans = temp
-            if ans == []:
+            path = tuple(path)
+            if len(np.nonzero(ans)[0]) == 0:
                 not_executed_paths.append(path)
                 execution_fail_counter += 1
             else:
                 executed_path_counter += 1
-            all_answers += ans
+            all_answers += [(ans, path_score, path)]
         self.num_non_executable_programs.append(execution_fail_counter)
         return all_answers, not_executed_paths
 
-    @staticmethod
-    def rank_answers(list_answers: List[Tuple[str, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
+    def rank_answers(self, list_answers: List[Tuple[np.ndarray, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
         str]:
         """
         Different ways to re-rank answers
@@ -239,18 +253,18 @@ class ProbCBR(object):
 
         count_map = {}
         uniq_entities = set()
-        for e, e_score, path in list_answers:
-            if e not in count_map:
-                count_map[e] = {}
-            if aggr_type1 == "none":
-                count_map[e][path] = e_score  # just count once for a path type.
-            elif aggr_type1 == "sum":
-                if path not in count_map[e]:
-                    count_map[e][path] = 0
-                count_map[e][path] += e_score  # aggregate for each path
-            else:
-                raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
-            uniq_entities.add(e)
+        for e_vec, e_score, path in list_answers:
+            path_answers = [(self.rev_entity_vocab[d_e], e_vec[d_e]) for d_e in np.nonzero(e_vec)[0]]
+            for e, e_c in path_answers:
+                if e not in count_map:
+                    count_map[e] = {}
+                if aggr_type1 == "none":
+                    count_map[e][path] = e_score  # just count once for a path type.
+                elif aggr_type1 == "sum":
+                    count_map[e][path] = e_score * e_c   # aggregate for each path
+                else:
+                    raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
+                uniq_entities.add(e)
         score_map = defaultdict(int)
         for e, path_scores_map in count_map.items():
             p_scores = [v for k, v in path_scores_map.items()]
@@ -477,10 +491,12 @@ def main(args):
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
     if args.small:
-        args.dev_file = os.path.join(data_dir, "dev.txt.small")
+        args.dev_file = os.path.join(data_dir,
+                                     "dev.txt.small" if args.specific_rel is None else f"dev.{args.specific_rel}.txt.small")
         args.test_file = os.path.join(data_dir, "test.txt")
     else:
-        args.dev_file = os.path.join(data_dir, "dev.txt")
+        args.dev_file = os.path.join(data_dir,
+                                     "dev.txt" if args.specific_rel is None else f"dev.{args.specific_rel}.txt")
         args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
             else os.path.join(data_dir, args.test_file_name)
 
@@ -489,7 +505,7 @@ def main(args):
     logger.info("Loading train map")
     train_map = load_data(kg_file)
     logger.info("Loading dev map")
-    dev_map = load_data(args.dev_file)
+    dev_map = load_data(args.dev_file, True if args.specific_rel is None else False)
     logger.info("Loading test map")
     test_map = load_data(args.test_file)
     eval_map = dev_map
@@ -620,6 +636,8 @@ if __name__ == '__main__':
     # CBR args
     parser.add_argument("--k_adj", type=int, default=5,
                         help="Number of nearest neighbors to consider based on adjacency matrix")
+    parser.add_argument("--cheat_neighbors", type=int, default=0,
+                        help="When adjacency fails to return neighbors, use any entities which have query relation")
     parser.add_argument("--max_num_programs", type=int, default=1000)
     # Output modifier args
     parser.add_argument("--name_of_run", type=str, default="unset")
@@ -633,7 +651,8 @@ if __name__ == '__main__':
     parser.add_argument("--max_branch", type=int, default=100)
     parser.add_argument("--aggr_type1", type=str, default="none", help="none/sum")
     parser.add_argument("--aggr_type2", type=str, default="sum", help="sum/max/noisy_or/logsumexp")
-    parser.add_argument("--use_only_precision_scores", action="store_true")
+    parser.add_argument("--use_only_precision_scores", type=int, default=0)
+    parser.add_argument("--specific_rel", type=int, default=None)
 
     args = parser.parse_args()
     if args.aggr_type2 == "noisy_or":
