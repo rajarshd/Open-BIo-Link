@@ -90,7 +90,8 @@ class ProbCBR(object):
     def get_programs_from_nearest_neighbors(self, e1: str, r: str, nn_func: Callable, num_nn: Optional[int] = 5):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
-        use_cheat_neighbors_for_r = self.args.cheat_neighbors if self.per_relation_config is None else self.per_relation_config[r]["cheat_neighbors"]
+        use_cheat_neighbors_for_r = self.args.cheat_neighbors if self.per_relation_config is None else \
+        self.per_relation_config[r]["cheat_neighbors"]
         if (nearest_entities is None or len(nearest_entities) == 0) and use_cheat_neighbors_for_r:
             num_ent_with_r = len(self.rel_ent_map[r])
             if num_ent_with_r > 0:
@@ -194,7 +195,8 @@ class ProbCBR(object):
         not_executed_paths = []
         execution_fail_counter = 0
         executed_path_counter = 0
-        max_num_programs_for_r = self.args.max_num_programs if self.per_relation_config is None else self.per_relation_config[r]["max_num_programs"]
+        max_num_programs_for_r = self.args.max_num_programs if self.per_relation_config is None else \
+        self.per_relation_config[r]["max_num_programs"]
         for path in path_list:
             if executed_path_counter == max_num_programs_for_r:
                 break
@@ -502,7 +504,13 @@ class ProbCBR(object):
             # read the input file and write the predictions per query for offline evaluation
             top10_heads = []
             top10_tails = []
-            with open(os.path.join(args.data_dir, "data", args.dataset_name, "inputs", args.input_file_name)) as fin:
+            if args.test:
+                input_file = os.path.join(args.data_dir, "data", args.dataset_name, "inputs", "test",
+                                          args.input_file_name)
+            else:
+                input_file = os.path.join(args.data_dir, "data", args.dataset_name, "inputs", "valid",
+                                          args.input_file_name)
+            with open(input_file) as fin:
                 for line in fin:
                     e1, r, e2 = line.strip().split("\t")
                     top10_tails.append([int(x) for x in self.top_query_preds[(e1, r, e2)]])
@@ -510,7 +518,7 @@ class ProbCBR(object):
                     top10_heads.append([int(x) for x in self.top_query_preds[(e2, r_inv, e1)]])
             top10_heads = torch.tensor(top10_heads)
             top10_tails = torch.tensor(top10_tails)
-            output_file_name = os.path.join(args.expt_dir, args.input_file_name+"_top10_tails.pkl")
+            output_file_name = os.path.join(args.expt_dir, args.input_file_name + "_top10_tails.pkl")
             logger.info("Writing tails to {}".format(output_file_name))
             with open(output_file_name, "wb") as fout:
                 pickle.dump(top10_tails, fout)
@@ -518,6 +526,7 @@ class ProbCBR(object):
             logger.info("Writing heads to {}".format(output_file_name))
             with open(output_file_name, "wb") as fout:
                 pickle.dump(top10_heads, fout)
+
 
 def main(args):
     dataset_name = args.dataset_name
@@ -529,28 +538,34 @@ def main(args):
                                                                                                    "graph.txt")
     if args.small:
         if args.input_file_name is not None:
-            args.dev_file = os.path.join(data_dir, "inputs", args.input_file_name + ".small")
+            if args.test:
+                args.test_file = os.path.join(data_dir, "inputs", "test", args.input_file_name + ".small")
+                args.dev_file = os.path.join(data_dir, "dev.txt.small")
+            else:
+                args.dev_file = os.path.join(data_dir, "inputs", "valid", args.input_file_name + ".small")
+                args.test_file = os.path.join(data_dir, "test.txt")
         elif args.specific_rel is not None:
             args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt.small")
         else:
             args.dev_file = os.path.join(data_dir, "dev.txt.small")
-        args.test_file = os.path.join(data_dir, "test.txt")
+            args.dev_file = os.path.join(data_dir, "test.txt")
     else:
         if args.input_file_name is not None:
-            args.dev_file = os.path.join(data_dir, "inputs", args.input_file_name)
+            if args.test:
+                args.test_file = os.path.join(data_dir, "inputs", "test", args.input_file_name)
+                args.dev_file = os.path.join(data_dir, "dev.txt")
+            else:
+                args.dev_file = os.path.join(data_dir, "inputs", "valid", args.input_file_name)
+                args.test_file = os.path.join(data_dir, "test.txt")
         elif args.specific_rel is not None:
             args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt")
         else:
             args.dev_file = os.path.join(data_dir, "dev.txt")
-
-        args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
-            else os.path.join(data_dir, args.test_file_name)
+            args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
+                else os.path.join(data_dir, args.test_file_name)
 
     args.train_file = os.path.join(data_dir, "graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                       "train.txt")
-    if args.test and (args.input_file_name is not None):
-        args.test_file = args.dev_file
-
     logger.info("Loading train map")
     train_map = load_data(kg_file)
     logger.info("Loading dev map")
@@ -678,7 +693,7 @@ if __name__ == '__main__':
     parser.add_argument("--dataset_name", type=str, default="nell")
     parser.add_argument("--data_dir", type=str, default="../prob_cbr_data/")
     parser.add_argument("--expt_dir", type=str,
-                        default="/mnt/nfs/work1/mccallum/rajarshi/Dropbox/research/Open-BIo-Link/outputs/")
+                        default="./outputs/")
     parser.add_argument("--subgraph_file_name", type=str, default="")
     # Per relation config
     parser.add_argument("--per_relation_config_file", type=str, default=None)
@@ -729,6 +744,8 @@ if __name__ == '__main__':
     if args.use_wandb:
         wandb.init(project='pr-cbr')
 
+    if args.input_file_name is not None:
+        args.name_of_run = args.input_file_name+"_"+str(uuid.uuid4())[:8]
     if args.name_of_run == "unset":
         args.name_of_run = str(uuid.uuid4())[:8]
 
