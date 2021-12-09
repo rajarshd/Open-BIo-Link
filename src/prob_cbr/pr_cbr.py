@@ -41,6 +41,7 @@ class ProbCBR(object):
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
         self.sparse_adj_mats = {}
+        self.top_query_preds = {}
         self.create_sparse_adj_mats()
 
     def create_sparse_adj_mats(self):
@@ -218,7 +219,8 @@ class ProbCBR(object):
         self.num_non_executable_programs.append(execution_fail_counter)
         return all_answers, not_executed_paths
 
-    def rank_answers(self, list_answers: List[Tuple[np.ndarray, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
+    def rank_answers(self, list_answers: List[Tuple[np.ndarray, float, List[str]]], aggr_type1="none",
+                     aggr_type2="sum") -> List[
         str]:
         """
         Different ways to re-rank answers
@@ -261,7 +263,7 @@ class ProbCBR(object):
                 if aggr_type1 == "none":
                     count_map[e][path] = e_score  # just count once for a path type.
                 elif aggr_type1 == "sum":
-                    count_map[e][path] = e_score * e_c   # aggregate for each path
+                    count_map[e][path] = e_score * e_c  # aggregate for each path
                 else:
                     raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
                 uniq_entities.add(e)
@@ -308,7 +310,7 @@ class ProbCBR(object):
                     continue
                 else:
                     filtered_answers.append(pred)
-
+            self.top_query_preds[(e1, r, gold_answer)] = filtered_answers[:10]
             rank = ProbCBR.get_rank_in_list(gold_answer, filtered_answers)
             if rank > 0:
                 if rank <= 10:
@@ -430,6 +432,9 @@ class ProbCBR(object):
                     per_relation_query_count[r] += len(e2_list)
             else:
                 acc = [0.0] * len(e2_list)
+                for e2 in e2_list:
+                    # random assignments
+                    self.top_query_preds[(e1, r, e2)] = np.random.choice(len(self.entity_vocab), 10, replace=False)
             all_acc += acc
             num_answers.append(len(answers))
             # put it back
@@ -477,10 +482,30 @@ class ProbCBR(object):
             wandb.log({'hits_1': hits_1 / total_examples, 'hits_3': hits_3 / total_examples,
                        'hits_5': hits_5 / total_examples, 'hits_10': hits_10 / total_examples,
                        'mrr': mrr / total_examples, 'total_examples': total_examples, 'non_zero_ctr': non_zero_ctr,
-                       'all_zero_ctr': self.all_zero_ctr, 'avg_num_nn': np.mean(self.all_num_ret_nn),
-                       'avg_num_prog': np.mean(num_programs), 'avg_num_ans': np.mean(num_answers),
+                       'avg_num_nn': np.mean(self.all_num_ret_nn), 'avg_num_prog': np.mean(num_programs),
+                       'avg_num_ans': np.mean(num_answers),
                        'avg_num_failed_prog': np.mean(self.num_non_executable_programs), 'acc_loose': np.mean(all_acc)})
 
+        if args.input_file_name is not None:
+            # read the input file and write the predictions per query for offline evaluation
+            top10_heads = []
+            top10_tails = []
+            with open(os.path.join(args.data_dir, "data", args.dataset_name, "inputs", args.input_file_name)) as fin:
+                for line in fin:
+                    e1, r, e2 = line.strip().split("\t")
+                    top10_tails.append([int(x) for x in self.top_query_preds[(e1, r, e2)]])
+                    r_inv = r + "_inv"
+                    top10_heads.append([int(x) for x in self.top_query_preds[(e2, r_inv, e1)]])
+            top10_heads = torch.tensor(top10_heads)
+            top10_tails = torch.tensor(top10_tails)
+            output_file_name = os.path.join(args.expt_dir, args.input_file_name+"_top10_tails.pkl")
+            logger.info("Writing tails to {}".format(output_file_name))
+            with open(output_file_name, "wb") as fout:
+                pickle.dump(top10_tails, fout)
+            output_file_name = os.path.join(args.expt_dir, args.input_file_name + "_top10_heads.pkl")
+            logger.info("Writing heads to {}".format(output_file_name))
+            with open(output_file_name, "wb") as fout:
+                pickle.dump(top10_heads, fout)
 
 def main(args):
     dataset_name = args.dataset_name
@@ -491,17 +516,29 @@ def main(args):
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
     if args.small:
-        args.dev_file = os.path.join(data_dir,
-                                     "dev.txt.small" if args.specific_rel is None else f"dev.{args.specific_rel}.txt.small")
+        if args.input_file_name is not None:
+            args.dev_file = os.path.join(data_dir, "inputs", args.input_file_name + ".small")
+        elif args.specific_rel is not None:
+            args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt.small")
+        else:
+            args.dev_file = os.path.join(data_dir, "dev.txt.small")
         args.test_file = os.path.join(data_dir, "test.txt")
     else:
-        args.dev_file = os.path.join(data_dir,
-                                     "dev.txt" if args.specific_rel is None else f"dev.{args.specific_rel}.txt")
+        if args.input_file_name is not None:
+            args.dev_file = os.path.join(data_dir, "inputs", args.input_file_name)
+        elif args.specific_rel is not None:
+            args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt")
+        else:
+            args.dev_file = os.path.join(data_dir, "dev.txt")
+
         args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
             else os.path.join(data_dir, args.test_file_name)
 
     args.train_file = os.path.join(data_dir, "graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                       "train.txt")
+    if args.test and (args.input_file_name is not None):
+        args.test_file = args.dev_file
+
     logger.info("Loading train map")
     train_map = load_data(kg_file)
     logger.info("Loading dev map")
@@ -622,12 +659,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Collect subgraphs around entities")
     parser.add_argument("--dataset_name", type=str, default="nell")
     parser.add_argument("--data_dir", type=str, default="../prob_cbr_data/")
-    parser.add_argument("--expt_dir", type=str, default="../prob_cbr_expts/")
+    parser.add_argument("--expt_dir", type=str,
+                        default="/mnt/nfs/work1/mccallum/rajarshi/Dropbox/research/Open-BIo-Link/outputs/")
     parser.add_argument("--subgraph_file_name", type=str, default="")
     parser.add_argument("--small", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--test_file_name", type=str, default='',
                         help="Useful to switch between test files for FB122")
+    parser.add_argument("--input_file_name", type=str, default=None,
+                        help="Input file name.")
     parser.add_argument("--use_path_counts", type=int, choices=[0, 1], default=1,
                         help="Set to 1 if want to weight paths during ranking")
     # Clustering args
@@ -659,6 +699,11 @@ if __name__ == '__main__':
         if args.aggr_type1 == "sum":
             logger.info("aggr_type1 cannot be sum, when aggr_type2 is noisy_or, exiting...")
             sys.exit(0)
+    try:
+        assert (args.specific_rel is None or args.input_file_name is None)
+    except AssertionError:
+        logger.info("Either one of specific rel or input file name should be provided, not both")
+        sys.exit(0)
 
     logger.info('COMMAND: %s' % ' '.join(sys.argv))
     if args.use_wandb:
@@ -666,6 +711,12 @@ if __name__ == '__main__':
 
     if args.name_of_run == "unset":
         args.name_of_run = str(uuid.uuid4())[:8]
+
+    if args.test or (args.input_file_name is not None and "test" in args.input_file_name):
+        args.expt_dir = os.path.join(args.expt_dir, "test")
+    else:
+        args.expt_dir = os.path.join(args.expt_dir, "valid")
+
     args.output_dir = os.path.join(args.expt_dir, "outputs", args.dataset_name, args.name_of_run)
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)
