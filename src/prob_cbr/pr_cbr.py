@@ -28,7 +28,7 @@ logging.basicConfig(
 
 class ProbCBR(object):
     def __init__(self, args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab, eval_vocab,
-                 eval_rev_vocab, all_paths, rel_ent_map):
+                 eval_rev_vocab, all_paths, rel_ent_map, per_relation_config: Union[None, dict]):
         self.args = args
         self.eval_map = eval_map
         self.train_map = train_map
@@ -38,6 +38,7 @@ class ProbCBR(object):
         self.eval_vocab, self.eval_rev_vocab = eval_vocab, eval_rev_vocab
         self.all_paths = all_paths
         self.rel_ent_map = rel_ent_map
+        self.per_relation_config = per_relation_config
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
         self.sparse_adj_mats = {}
@@ -88,7 +89,8 @@ class ProbCBR(object):
     def get_programs_from_nearest_neighbors(self, e1: str, r: str, nn_func: Callable, num_nn: Optional[int] = 5):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
-        if (nearest_entities is None or len(nearest_entities) == 0) and self.args.cheat_neighbors:
+        use_cheat_neighbors_for_r = self.args.cheat_neighbors if self.per_relation_config is None else self.per_relation_config[r]["cheat_neighbors"]
+        if (nearest_entities is None or len(nearest_entities) == 0) and use_cheat_neighbors_for_r:
             num_ent_with_r = len(self.rel_ent_map[r])
             if num_ent_with_r > 0:
                 if num_ent_with_r < num_nn:
@@ -122,9 +124,11 @@ class ProbCBR(object):
             unique_programs.add(tuple(p))
         # now get the score of each path
         path_and_scores = []
+        use_only_precision_scores_for_r = self.args.use_only_precision_scores if self.per_relation_config is None \
+            else self.per_relation_config[r]["use_only_precision_scores"]
         for p in unique_programs:
             try:
-                if self.args.use_only_precision_scores:
+                if use_only_precision_scores_for_r:
                     path_and_scores.append((p, self.args.precision_map[self.c][r][p]))
                 else:
                     path_and_scores.append((p, self.args.path_prior_map_per_relation[self.c][r][p] *
@@ -137,7 +141,7 @@ class ProbCBR(object):
                     # use the fall back score
                     try:
                         c = 0
-                        if self.args.use_only_precision_scores:
+                        if use_only_precision_scores_for_r:
                             score = self.args.precision_map_fallback[c][r][p]
                         else:
                             score = self.args.path_prior_map_per_relation_fallback[c][r][p] * \
@@ -189,8 +193,9 @@ class ProbCBR(object):
         not_executed_paths = []
         execution_fail_counter = 0
         executed_path_counter = 0
+        max_num_programs_for_r = self.args.max_num_programs if self.per_relation_config is None else self.per_relation_config[r]["max_num_programs"]
         for path in path_list:
-            if executed_path_counter == self.args.max_num_programs:
+            if executed_path_counter == max_num_programs_for_r:
                 break
             ans = self.execute_one_program(e, path, depth=0, max_branch=max_branch)
             if self.args.use_path_counts:
@@ -375,8 +380,9 @@ class ProbCBR(object):
                     self.train_map[(e2, r_inv)] = temp_map[(e2, r_inv)]
                 continue  # this entity was not seen during train; skip?
             self.c = self.args.cluster_assignments[self.entity_vocab[e1]]
+            num_nn_for_r = self.args.k_adj if self.per_relation_config is None else self.per_relation_config[r]["k_adj"]
             all_programs = self.get_programs_from_nearest_neighbors(e1, r, self.get_nearest_neighbor_inner_product,
-                                                                    num_nn=self.args.k_adj)
+                                                                    num_nn=num_nn_for_r)
             if all_programs is None or len(all_programs) == 0:
                 all_acc += [0.0] * len(e2_list)
                 # put it back
@@ -409,7 +415,13 @@ class ProbCBR(object):
             num_programs.append(len(all_uniq_programs))
             # Now execute the program
             answers, not_executed_programs = self.execute_programs(e1, r, all_uniq_programs, max_branch=args.max_branch)
-            answers = self.rank_answers(answers, self.args.aggr_type1, self.args.aggr_type2)
+            aggr_type1_for_r = self.args.aggr_type1 if self.per_relation_config is None \
+                else self.per_relation_config[r]["aggr_type1"]
+            aggr_type2_for_r = self.args.aggr_type2 if self.per_relation_config is None \
+                else self.per_relation_config[r]["aggr_type2"]
+            answers = self.rank_answers(answers,
+                                        aggr_type1_for_r,
+                                        aggr_type2_for_r)
             if len(answers) > 0:
                 acc = self.get_accuracy(e2_list, [k[0] for k in answers])
                 _10, _5, _3, _1, rr = self.get_hits([k[0] for k in answers], e2_list, query=(e1, r))
@@ -517,6 +529,12 @@ def main(args):
 
     logger.info("=========Config:============")
     logger.info(json.dumps(vars(args), indent=4, sort_keys=True))
+    if args.per_relation_config_file is not None and os.path.exists(args.per_relation_config_file):
+        per_relation_config = json.load(open(args.per_relation_config_file))
+        logger.info("=========Per Relation Config:============")
+        logger.info(json.dumps(per_relation_config, indent=1, sort_keys=True))
+    else:
+        per_relation_config = None
     logger.info("Loading vocabs...")
     entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab, eval_vocab, eval_rev_vocab = load_vocab(data_dir)
     # making these part of args for easier access #hack
@@ -538,7 +556,7 @@ def main(args):
     all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
 
     prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
-                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map)
+                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map, per_relation_config)
     ########### entity sim ###########
     if os.path.exists(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")):
         with open(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl"), "rb") as fin:
@@ -624,6 +642,8 @@ if __name__ == '__main__':
     parser.add_argument("--data_dir", type=str, default="../prob_cbr_data/")
     parser.add_argument("--expt_dir", type=str, default="../prob_cbr_expts/")
     parser.add_argument("--subgraph_file_name", type=str, default="")
+    # Per relation config
+    parser.add_argument("--per_relation_config_file", type=str, default=None)
     parser.add_argument("--small", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--test_file_name", type=str, default='',

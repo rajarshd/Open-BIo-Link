@@ -1,0 +1,450 @@
+{
+ "0": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 13,
+  "max_num_programs": 247,
+  "use_only_precision_scores": 1
+ },
+ "0_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 17,
+  "max_num_programs": 250,
+  "use_only_precision_scores": 1
+ },
+ "1": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 6,
+  "max_num_programs": 167,
+  "use_only_precision_scores": 0
+ },
+ "10": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 41,
+  "max_num_programs": 163,
+  "use_only_precision_scores": 0
+ },
+ "10_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 24,
+  "max_num_programs": 24,
+  "use_only_precision_scores": 0
+ },
+ "11": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 1,
+  "k_adj": 34,
+  "max_num_programs": 224,
+  "use_only_precision_scores": 1
+ },
+ "11_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 1,
+  "k_adj": 34,
+  "max_num_programs": 183,
+  "use_only_precision_scores": 1
+ },
+ "12": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 26,
+  "max_num_programs": 153,
+  "use_only_precision_scores": 1
+ },
+ "12_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 45,
+  "max_num_programs": 96,
+  "use_only_precision_scores": 0
+ },
+ "13": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 0,
+  "k_adj": 50,
+  "max_num_programs": 135,
+  "use_only_precision_scores": 0
+ },
+ "13_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 11,
+  "max_num_programs": 32,
+  "use_only_precision_scores": 1
+ },
+ "14": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 9,
+  "max_num_programs": 9,
+  "use_only_precision_scores": 1
+ },
+ "14_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 26,
+  "max_num_programs": 246,
+  "use_only_precision_scores": 0
+ },
+ "15": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 15,
+  "max_num_programs": 149,
+  "use_only_precision_scores": 0
+ },
+ "15_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 1,
+  "k_adj": 16,
+  "max_num_programs": 141,
+  "use_only_precision_scores": 0
+ },
+ "16": {
+  "aggr_type1": "none",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 4,
+  "max_num_programs": 124,
+  "use_only_precision_scores": 0
+ },
+ "16_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 37,
+  "max_num_programs": 71,
+  "use_only_precision_scores": 1
+ },
+ "17": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 3,
+  "max_num_programs": 126,
+  "use_only_precision_scores": 0
+ },
+ "17_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 16,
+  "max_num_programs": 221,
+  "use_only_precision_scores": 0
+ },
+ "18": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 44,
+  "max_num_programs": 15,
+  "use_only_precision_scores": 1
+ },
+ "18_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 6,
+  "max_num_programs": 44,
+  "use_only_precision_scores": 1
+ },
+ "19": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 33,
+  "max_num_programs": 102,
+  "use_only_precision_scores": 0
+ },
+ "19_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 38,
+  "max_num_programs": 167,
+  "use_only_precision_scores": 0
+ },
+ "1_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 39,
+  "max_num_programs": 165,
+  "use_only_precision_scores": 0
+ },
+ "2": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 1,
+  "k_adj": 4,
+  "max_num_programs": 220,
+  "use_only_precision_scores": 0
+ },
+ "20": {
+  "aggr_type1": "none",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 50,
+  "max_num_programs": 67,
+  "use_only_precision_scores": 0
+ },
+ "20_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 37,
+  "max_num_programs": 241,
+  "use_only_precision_scores": 1
+ },
+ "21": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 8,
+  "max_num_programs": 31,
+  "use_only_precision_scores": 1
+ },
+ "21_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 2,
+  "max_num_programs": 104,
+  "use_only_precision_scores": 0
+ },
+ "22": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 34,
+  "max_num_programs": 28,
+  "use_only_precision_scores": 1
+ },
+ "22_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 8,
+  "max_num_programs": 87,
+  "use_only_precision_scores": 1
+ },
+ "23": {
+  "aggr_type1": "none",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 39,
+  "max_num_programs": 38,
+  "use_only_precision_scores": 1
+ },
+ "23_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 20,
+  "max_num_programs": 157,
+  "use_only_precision_scores": 1
+ },
+ "24": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 23,
+  "max_num_programs": 12,
+  "use_only_precision_scores": 0
+ },
+ "24_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 1,
+  "k_adj": 34,
+  "max_num_programs": 36,
+  "use_only_precision_scores": 0
+ },
+ "25": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 50,
+  "max_num_programs": 10,
+  "use_only_precision_scores": 1
+ },
+ "25_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 11,
+  "max_num_programs": 26,
+  "use_only_precision_scores": 1
+ },
+ "26": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 41,
+  "max_num_programs": 187,
+  "use_only_precision_scores": 0
+ },
+ "26_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 24,
+  "max_num_programs": 163,
+  "use_only_precision_scores": 1
+ },
+ "27": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 45,
+  "max_num_programs": 42,
+  "use_only_precision_scores": 1
+ },
+ "27_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 33,
+  "max_num_programs": 220,
+  "use_only_precision_scores": 1
+ },
+ "2_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 17,
+  "max_num_programs": 6,
+  "use_only_precision_scores": 1
+ },
+ "3": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 1,
+  "k_adj": 15,
+  "max_num_programs": 91,
+  "use_only_precision_scores": 1
+ },
+ "3_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 33,
+  "max_num_programs": 6,
+  "use_only_precision_scores": 0
+ },
+ "4": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 36,
+  "max_num_programs": 109,
+  "use_only_precision_scores": 0
+ },
+ "4_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "max",
+  "cheat_neighbors": 0,
+  "k_adj": 12,
+  "max_num_programs": 186,
+  "use_only_precision_scores": 0
+ },
+ "5": {
+  "aggr_type1": "none",
+  "aggr_type2": "max",
+  "cheat_neighbors": 1,
+  "k_adj": 27,
+  "max_num_programs": 53,
+  "use_only_precision_scores": 1
+ },
+ "5_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "max",
+  "cheat_neighbors": 1,
+  "k_adj": 22,
+  "max_num_programs": 127,
+  "use_only_precision_scores": 1
+ },
+ "6": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 39,
+  "max_num_programs": 217,
+  "use_only_precision_scores": 1
+ },
+ "6_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "noisy_or",
+  "cheat_neighbors": 1,
+  "k_adj": 20,
+  "max_num_programs": 13,
+  "use_only_precision_scores": 0
+ },
+ "7": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 1,
+  "k_adj": 9,
+  "max_num_programs": 211,
+  "use_only_precision_scores": 0
+ },
+ "7_inv": {
+  "aggr_type1": "none",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 40,
+  "max_num_programs": 11,
+  "use_only_precision_scores": 0
+ },
+ "8": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 1,
+  "k_adj": 14,
+  "max_num_programs": 172,
+  "use_only_precision_scores": 1
+ },
+ "8_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "logsumexp",
+  "cheat_neighbors": 0,
+  "k_adj": 33,
+  "max_num_programs": 166,
+  "use_only_precision_scores": 0
+ },
+ "9": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 28,
+  "max_num_programs": 30,
+  "use_only_precision_scores": 1
+ },
+ "9_inv": {
+  "aggr_type1": "sum",
+  "aggr_type2": "sum",
+  "cheat_neighbors": 0,
+  "k_adj": 28,
+  "max_num_programs": 9,
+  "use_only_precision_scores": 0
+ }
+}
