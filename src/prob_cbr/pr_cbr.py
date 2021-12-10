@@ -28,7 +28,7 @@ logging.basicConfig(
 
 class ProbCBR(object):
     def __init__(self, args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab, eval_vocab,
-                 eval_rev_vocab, all_paths, rel_ent_map):
+                 eval_rev_vocab, all_paths, rel_ent_map, per_relation_config: Union[None, dict]):
         self.args = args
         self.eval_map = eval_map
         self.train_map = train_map
@@ -38,9 +38,11 @@ class ProbCBR(object):
         self.eval_vocab, self.eval_rev_vocab = eval_vocab, eval_rev_vocab
         self.all_paths = all_paths
         self.rel_ent_map = rel_ent_map
+        self.per_relation_config = per_relation_config
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
         self.sparse_adj_mats = {}
+        self.top_query_preds = {}
         self.create_sparse_adj_mats()
 
     def create_sparse_adj_mats(self):
@@ -88,7 +90,9 @@ class ProbCBR(object):
     def get_programs_from_nearest_neighbors(self, e1: str, r: str, nn_func: Callable, num_nn: Optional[int] = 5):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
-        if (nearest_entities is None or len(nearest_entities) == 0) and self.args.cheat_neighbors:
+        use_cheat_neighbors_for_r = self.args.cheat_neighbors if self.per_relation_config is None else \
+            self.per_relation_config[r]["cheat_neighbors"]
+        if (nearest_entities is None or len(nearest_entities) == 0) and use_cheat_neighbors_for_r:
             num_ent_with_r = len(self.rel_ent_map[r])
             if num_ent_with_r > 0:
                 if num_ent_with_r < num_nn:
@@ -122,9 +126,11 @@ class ProbCBR(object):
             unique_programs.add(tuple(p))
         # now get the score of each path
         path_and_scores = []
+        use_only_precision_scores_for_r = self.args.use_only_precision_scores if self.per_relation_config is None \
+            else self.per_relation_config[r]["use_only_precision_scores"]
         for p in unique_programs:
             try:
-                if self.args.use_only_precision_scores:
+                if use_only_precision_scores_for_r:
                     path_and_scores.append((p, self.args.precision_map[self.c][r][p]))
                 else:
                     path_and_scores.append((p, self.args.path_prior_map_per_relation[self.c][r][p] *
@@ -137,7 +143,7 @@ class ProbCBR(object):
                     # use the fall back score
                     try:
                         c = 0
-                        if self.args.use_only_precision_scores:
+                        if use_only_precision_scores_for_r:
                             score = self.args.precision_map_fallback[c][r][p]
                         else:
                             score = self.args.path_prior_map_per_relation_fallback[c][r][p] * \
@@ -189,8 +195,10 @@ class ProbCBR(object):
         not_executed_paths = []
         execution_fail_counter = 0
         executed_path_counter = 0
+        max_num_programs_for_r = self.args.max_num_programs if self.per_relation_config is None else \
+            self.per_relation_config[r]["max_num_programs"]
         for path in path_list:
-            if executed_path_counter == self.args.max_num_programs:
+            if executed_path_counter == max_num_programs_for_r:
                 break
             ans = self.execute_one_program(e, path, depth=0, max_branch=max_branch)
             if self.args.use_path_counts:
@@ -218,7 +226,8 @@ class ProbCBR(object):
         self.num_non_executable_programs.append(execution_fail_counter)
         return all_answers, not_executed_paths
 
-    def rank_answers(self, list_answers: List[Tuple[np.ndarray, float, List[str]]], aggr_type1="none", aggr_type2="sum") -> List[
+    def rank_answers(self, list_answers: List[Tuple[np.ndarray, float, List[str]]], aggr_type1="none",
+                     aggr_type2="sum") -> List[
         str]:
         """
         Different ways to re-rank answers
@@ -231,6 +240,8 @@ class ProbCBR(object):
             :return:
             """
             # sort wrt the max value
+            if len(score_map) == 0:
+                return []
             sorted_score_map = sorted(score_map.items(), key=lambda kv: -kv[1][0])
             sorted_score_map_second_round = []
             temp = []
@@ -261,7 +272,7 @@ class ProbCBR(object):
                 if aggr_type1 == "none":
                     count_map[e][path] = e_score  # just count once for a path type.
                 elif aggr_type1 == "sum":
-                    count_map[e][path] = e_score * e_c   # aggregate for each path
+                    count_map[e][path] = e_score * e_c  # aggregate for each path
                 else:
                     raise NotImplementedError("{} aggr_type1 is invalid".format(aggr_type1))
                 uniq_entities.add(e)
@@ -308,7 +319,7 @@ class ProbCBR(object):
                     continue
                 else:
                     filtered_answers.append(pred)
-
+            self.top_query_preds[(e1, r, gold_answer)] = filtered_answers[:10]
             rank = ProbCBR.get_rank_in_list(gold_answer, filtered_answers)
             if rank > 0:
                 if rank <= 10:
@@ -375,15 +386,9 @@ class ProbCBR(object):
                     self.train_map[(e2, r_inv)] = temp_map[(e2, r_inv)]
                 continue  # this entity was not seen during train; skip?
             self.c = self.args.cluster_assignments[self.entity_vocab[e1]]
+            num_nn_for_r = self.args.k_adj if self.per_relation_config is None else self.per_relation_config[r]["k_adj"]
             all_programs = self.get_programs_from_nearest_neighbors(e1, r, self.get_nearest_neighbor_inner_product,
-                                                                    num_nn=self.args.k_adj)
-            if all_programs is None or len(all_programs) == 0:
-                all_acc += [0.0] * len(e2_list)
-                # put it back
-                self.train_map[(e1, r)] = orig_train_e2_list
-                for e2 in e2_list:
-                    self.train_map[(e2, r_inv)] = temp_map[(e2, r_inv)]
-                continue
+                                                                    num_nn=num_nn_for_r)
             for p in all_programs:
                 if p[0] == r:
                     continue
@@ -409,7 +414,13 @@ class ProbCBR(object):
             num_programs.append(len(all_uniq_programs))
             # Now execute the program
             answers, not_executed_programs = self.execute_programs(e1, r, all_uniq_programs, max_branch=args.max_branch)
-            answers = self.rank_answers(answers, self.args.aggr_type1, self.args.aggr_type2)
+            aggr_type1_for_r = self.args.aggr_type1 if self.per_relation_config is None \
+                else self.per_relation_config[r]["aggr_type1"]
+            aggr_type2_for_r = self.args.aggr_type2 if self.per_relation_config is None \
+                else self.per_relation_config[r]["aggr_type2"]
+            answers = self.rank_answers(answers,
+                                        aggr_type1_for_r,
+                                        aggr_type2_for_r)
             if len(answers) > 0:
                 acc = self.get_accuracy(e2_list, [k[0] for k in answers])
                 _10, _5, _3, _1, rr = self.get_hits([k[0] for k in answers], e2_list, query=(e1, r))
@@ -430,6 +441,9 @@ class ProbCBR(object):
                     per_relation_query_count[r] += len(e2_list)
             else:
                 acc = [0.0] * len(e2_list)
+                for e2 in e2_list:
+                    # random assignments
+                    self.top_query_preds[(e1, r, e2)] = np.random.choice(len(self.entity_vocab), 10, replace=False)
             all_acc += acc
             num_answers.append(len(answers))
             # put it back
@@ -477,9 +491,40 @@ class ProbCBR(object):
             wandb.log({'hits_1': hits_1 / total_examples, 'hits_3': hits_3 / total_examples,
                        'hits_5': hits_5 / total_examples, 'hits_10': hits_10 / total_examples,
                        'mrr': mrr / total_examples, 'total_examples': total_examples, 'non_zero_ctr': non_zero_ctr,
-                       'all_zero_ctr': self.all_zero_ctr, 'avg_num_nn': np.mean(self.all_num_ret_nn),
-                       'avg_num_prog': np.mean(num_programs), 'avg_num_ans': np.mean(num_answers),
+                       'avg_num_nn': np.mean(self.all_num_ret_nn), 'avg_num_prog': np.mean(num_programs),
+                       'avg_num_ans': np.mean(num_answers),
                        'avg_num_failed_prog': np.mean(self.num_non_executable_programs), 'acc_loose': np.mean(all_acc)})
+
+        if args.input_file_name is not None:
+            # read the input file and write the predictions per query for offline evaluation
+            top10_heads = []
+            top10_tails = []
+
+            input_file = args.test_file if args.test else args.dev_file
+            with open(input_file) as fin:
+                for line in fin:
+                    e1, r, e2 = line.strip().split("\t")
+                    if len(self.top_query_preds[(e1, r, e2)]) < 10:
+                        num_missing = 10 - len(self.top_query_preds[(e1, r, e2)])
+                        self.top_query_preds[(e1, r, e2)].append(
+                            np.random.choice(len(self.entity_vocab), num_missing, replace=False))
+                    top10_tails.append([int(x) for x in self.top_query_preds[(e1, r, e2)]])
+                    r_inv = r + "_inv"
+                    if len(self.top_query_preds[(e2, r_inv, e1)]) < 10:
+                        num_missing = 10 - len(self.top_query_preds[(e2, r_inv, e1)])
+                        self.top_query_preds[(e2, r_inv, e1)].append(
+                            np.random.choice(len(self.entity_vocab), num_missing, replace=False))
+                    top10_heads.append([int(x) for x in self.top_query_preds[(e2, r_inv, e1)]])
+            top10_heads = torch.tensor(top10_heads)
+            top10_tails = torch.tensor(top10_tails)
+            output_file_name = os.path.join(args.expt_dir, args.input_file_name + "_top10_tails.pkl")
+            logger.info("Writing tails to {}".format(output_file_name))
+            with open(output_file_name, "wb") as fout:
+                pickle.dump(top10_tails, fout)
+            output_file_name = os.path.join(args.expt_dir, args.input_file_name + "_top10_heads.pkl")
+            logger.info("Writing heads to {}".format(output_file_name))
+            with open(output_file_name, "wb") as fout:
+                pickle.dump(top10_heads, fout)
 
 
 def main(args):
@@ -491,14 +536,35 @@ def main(args):
     kg_file = os.path.join(data_dir, "full_graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                    "graph.txt")
     if args.small:
-        args.dev_file = os.path.join(data_dir,
-                                     "dev.txt.small" if args.specific_rel is None else f"dev.{args.specific_rel}.txt.small")
-        args.test_file = os.path.join(data_dir, "test.txt")
+        if args.input_file_name is not None:
+            if args.test:
+                args.test_file = os.path.join(data_dir, "inputs", "test", args.input_file_name + ".small")
+                args.dev_file = os.path.join(data_dir, "dev.txt.small")
+            else:
+                args.dev_file = os.path.join(data_dir, "inputs", "valid", args.input_file_name + ".small")
+                args.test_file = os.path.join(data_dir, "test.txt")
+        elif args.specific_rel is not None:
+            args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt.small")
+            args.test_file = os.path.join(data_dir, "test.txt")
+        else:
+            args.dev_file = os.path.join(data_dir, "dev.txt.small")
+            args.test_file = os.path.join(data_dir, "test.txt")
     else:
-        args.dev_file = os.path.join(data_dir,
-                                     "dev.txt" if args.specific_rel is None else f"dev.{args.specific_rel}.txt")
-        args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
-            else os.path.join(data_dir, args.test_file_name)
+        if args.input_file_name is not None:
+            if args.test:
+                args.test_file = os.path.join(data_dir, "inputs", "test", args.input_file_name)
+                args.dev_file = os.path.join(data_dir, "dev.txt")
+            else:
+                args.dev_file = os.path.join(data_dir, "inputs", "valid", args.input_file_name)
+                args.test_file = os.path.join(data_dir, "test.txt")
+        elif args.specific_rel is not None:
+            args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt")
+            args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
+                else os.path.join(data_dir, args.test_file_name)
+        else:
+            args.dev_file = os.path.join(data_dir, "dev.txt")
+            args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
+                else os.path.join(data_dir, args.test_file_name)
 
     args.train_file = os.path.join(data_dir, "graph.txt") if dataset_name == "nell" else os.path.join(data_dir,
                                                                                                       "train.txt")
@@ -517,6 +583,12 @@ def main(args):
 
     logger.info("=========Config:============")
     logger.info(json.dumps(vars(args), indent=4, sort_keys=True))
+    if args.per_relation_config_file is not None and os.path.exists(args.per_relation_config_file):
+        per_relation_config = json.load(open(args.per_relation_config_file))
+        logger.info("=========Per Relation Config:============")
+        logger.info(json.dumps(per_relation_config, indent=1, sort_keys=True))
+    else:
+        per_relation_config = None
     logger.info("Loading vocabs...")
     entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab, eval_vocab, eval_rev_vocab = load_vocab(data_dir)
     # making these part of args for easier access #hack
@@ -538,7 +610,7 @@ def main(args):
     all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
 
     prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
-                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map)
+                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map, per_relation_config)
     ########### entity sim ###########
     if os.path.exists(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")):
         with open(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl"), "rb") as fin:
@@ -622,12 +694,17 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Collect subgraphs around entities")
     parser.add_argument("--dataset_name", type=str, default="nell")
     parser.add_argument("--data_dir", type=str, default="../prob_cbr_data/")
-    parser.add_argument("--expt_dir", type=str, default="../prob_cbr_expts/")
+    parser.add_argument("--expt_dir", type=str,
+                        default="./outputs/")
     parser.add_argument("--subgraph_file_name", type=str, default="")
+    # Per relation config
+    parser.add_argument("--per_relation_config_file", type=str, default=None)
     parser.add_argument("--small", action="store_true")
     parser.add_argument("--test", action="store_true")
     parser.add_argument("--test_file_name", type=str, default='',
                         help="Useful to switch between test files for FB122")
+    parser.add_argument("--input_file_name", type=str, default=None,
+                        help="Input file name.")
     parser.add_argument("--use_path_counts", type=int, choices=[0, 1], default=1,
                         help="Set to 1 if want to weight paths during ranking")
     # Clustering args
@@ -659,13 +736,26 @@ if __name__ == '__main__':
         if args.aggr_type1 == "sum":
             logger.info("aggr_type1 cannot be sum, when aggr_type2 is noisy_or, exiting...")
             sys.exit(0)
+    try:
+        assert (args.specific_rel is None or args.input_file_name is None)
+    except AssertionError:
+        logger.info("Either one of specific rel or input file name should be provided, not both")
+        sys.exit(0)
 
     logger.info('COMMAND: %s' % ' '.join(sys.argv))
     if args.use_wandb:
         wandb.init(project='pr-cbr')
 
+    if args.input_file_name is not None:
+        args.name_of_run = args.input_file_name + "_" + str(uuid.uuid4())[:8]
     if args.name_of_run == "unset":
         args.name_of_run = str(uuid.uuid4())[:8]
+
+    if args.test or (args.input_file_name is not None and "test" in args.input_file_name):
+        args.expt_dir = os.path.join(args.expt_dir, "test")
+    else:
+        args.expt_dir = os.path.join(args.expt_dir, "valid")
+
     args.output_dir = os.path.join(args.expt_dir, "outputs", args.dataset_name, args.name_of_run)
     if not os.path.exists(args.output_dir):
         os.makedirs(args.output_dir)

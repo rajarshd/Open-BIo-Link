@@ -3,8 +3,9 @@ command:
 - ${program}
 - --small
 - --output_per_relation_scores
+- --use_only_precision_scores
 - ${args}
-name: OBL-small
+name: OBL-small-sparse-matrix-vec
 program: src/prob_cbr/pr_cbr.py
 method: bayes
 metric:
@@ -21,9 +22,6 @@ parameters:
   k_adj:
     min: 2
     max: 50
-  max_branch:
-    min: 10
-    max: 50
   linkage:
     value: 0
   use_path_counts:
@@ -36,6 +34,6 @@ parameters:
     values:
       - "sum"
       - "max"
-      - "noisy_or"
+      - "logsumexp"
   use_wandb:
     value: 1
