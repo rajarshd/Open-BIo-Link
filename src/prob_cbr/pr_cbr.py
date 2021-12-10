@@ -387,13 +387,6 @@ class ProbCBR(object):
             num_nn_for_r = self.args.k_adj if self.per_relation_config is None else self.per_relation_config[r]["k_adj"]
             all_programs = self.get_programs_from_nearest_neighbors(e1, r, self.get_nearest_neighbor_inner_product,
                                                                     num_nn=num_nn_for_r)
-            if all_programs is None or len(all_programs) == 0:
-                all_acc += [0.0] * len(e2_list)
-                # put it back
-                self.train_map[(e1, r)] = orig_train_e2_list
-                for e2 in e2_list:
-                    self.train_map[(e2, r_inv)] = temp_map[(e2, r_inv)]
-                continue
             for p in all_programs:
                 if p[0] == r:
                     continue
@@ -419,14 +412,14 @@ class ProbCBR(object):
             num_programs.append(len(all_uniq_programs))
             # Now execute the program
             answers, not_executed_programs = self.execute_programs(e1, r, all_uniq_programs, max_branch=args.max_branch)
-            aggr_type1_for_r = self.args.aggr_type1 if self.per_relation_config is None \
-                else self.per_relation_config[r]["aggr_type1"]
-            aggr_type2_for_r = self.args.aggr_type2 if self.per_relation_config is None \
-                else self.per_relation_config[r]["aggr_type2"]
-            answers = self.rank_answers(answers,
-                                        aggr_type1_for_r,
-                                        aggr_type2_for_r)
             if len(answers) > 0:
+                aggr_type1_for_r = self.args.aggr_type1 if self.per_relation_config is None \
+                    else self.per_relation_config[r]["aggr_type1"]
+                aggr_type2_for_r = self.args.aggr_type2 if self.per_relation_config is None \
+                    else self.per_relation_config[r]["aggr_type2"]
+                answers = self.rank_answers(answers,
+                                            aggr_type1_for_r,
+                                            aggr_type2_for_r)
                 acc = self.get_accuracy(e2_list, [k[0] for k in answers])
                 _10, _5, _3, _1, rr = self.get_hits([k[0] for k in answers], e2_list, query=(e1, r))
                 hits_10 += _10
@@ -504,12 +497,8 @@ class ProbCBR(object):
             # read the input file and write the predictions per query for offline evaluation
             top10_heads = []
             top10_tails = []
-            if args.test:
-                input_file = os.path.join(args.data_dir, "data", args.dataset_name, "inputs", "test",
-                                          args.input_file_name)
-            else:
-                input_file = os.path.join(args.data_dir, "data", args.dataset_name, "inputs", "valid",
-                                          args.input_file_name)
+
+            input_file = args.test_file if args.test else args.dev_file
             with open(input_file) as fin:
                 for line in fin:
                     e1, r, e2 = line.strip().split("\t")
