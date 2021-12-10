@@ -501,6 +501,7 @@ class ProbCBR(object):
             top10_tails = []
 
             input_file = args.test_file if args.test else args.dev_file
+            triple_ctr = 0
             with open(input_file) as fin:
                 for line in fin:
                     e1, r, e2 = line.strip().split("\t")
@@ -515,8 +516,10 @@ class ProbCBR(object):
                         self.top_query_preds[(e2, r_inv, e1)].append(
                             np.random.choice(len(self.entity_vocab), num_missing, replace=False))
                     top10_heads.append([int(x) for x in self.top_query_preds[(e2, r_inv, e1)]])
+                    triple_ctr += 1
             top10_heads = torch.tensor(top10_heads)
             top10_tails = torch.tensor(top10_tails)
+            assert top10_heads.shape[0] == top10_tails.shape[0] == triple_ctr
             output_file_name = os.path.join(args.expt_dir, args.input_file_name + "_top10_tails.pkl")
             logger.info("Writing tails to {}".format(output_file_name))
             with open(output_file_name, "wb") as fout:
