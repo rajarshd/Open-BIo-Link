@@ -507,14 +507,14 @@ class ProbCBR(object):
                     e1, r, e2 = line.strip().split("\t")
                     if len(self.top_query_preds[(e1, r, e2)]) < 10:
                         num_missing = 10 - len(self.top_query_preds[(e1, r, e2)])
-                        self.top_query_preds[(e1, r, e2)].append(
-                            np.random.choice(len(self.entity_vocab), num_missing, replace=False))
+                        self.top_query_preds[(e1, r, e2)].extend(
+                            np.random.choice(len(self.entity_vocab), num_missing, replace=False).tolist())
                     top10_tails.append([int(x) for x in self.top_query_preds[(e1, r, e2)]])
                     r_inv = r + "_inv"
                     if len(self.top_query_preds[(e2, r_inv, e1)]) < 10:
                         num_missing = 10 - len(self.top_query_preds[(e2, r_inv, e1)])
-                        self.top_query_preds[(e2, r_inv, e1)].append(
-                            np.random.choice(len(self.entity_vocab), num_missing, replace=False))
+                        self.top_query_preds[(e2, r_inv, e1)].extend(
+                            np.random.choice(len(self.entity_vocab), num_missing, replace=False).tolist())
                     top10_heads.append([int(x) for x in self.top_query_preds[(e2, r_inv, e1)]])
                     triple_ctr += 1
             top10_heads = torch.tensor(top10_heads)
