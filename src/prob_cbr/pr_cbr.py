@@ -91,7 +91,7 @@ class ProbCBR(object):
         all_programs = []
         nearest_entities = nn_func(e1, r, k=num_nn)
         use_cheat_neighbors_for_r = self.args.cheat_neighbors if self.per_relation_config is None else \
-        self.per_relation_config[r]["cheat_neighbors"]
+            self.per_relation_config[r]["cheat_neighbors"]
         if (nearest_entities is None or len(nearest_entities) == 0) and use_cheat_neighbors_for_r:
             num_ent_with_r = len(self.rel_ent_map[r])
             if num_ent_with_r > 0:
@@ -196,7 +196,7 @@ class ProbCBR(object):
         execution_fail_counter = 0
         executed_path_counter = 0
         max_num_programs_for_r = self.args.max_num_programs if self.per_relation_config is None else \
-        self.per_relation_config[r]["max_num_programs"]
+            self.per_relation_config[r]["max_num_programs"]
         for path in path_list:
             if executed_path_counter == max_num_programs_for_r:
                 break
@@ -240,6 +240,8 @@ class ProbCBR(object):
             :return:
             """
             # sort wrt the max value
+            if len(score_map) == 0:
+                return []
             sorted_score_map = sorted(score_map.items(), key=lambda kv: -kv[1][0])
             sorted_score_map_second_round = []
             temp = []
@@ -412,14 +414,14 @@ class ProbCBR(object):
             num_programs.append(len(all_uniq_programs))
             # Now execute the program
             answers, not_executed_programs = self.execute_programs(e1, r, all_uniq_programs, max_branch=args.max_branch)
+            aggr_type1_for_r = self.args.aggr_type1 if self.per_relation_config is None \
+                else self.per_relation_config[r]["aggr_type1"]
+            aggr_type2_for_r = self.args.aggr_type2 if self.per_relation_config is None \
+                else self.per_relation_config[r]["aggr_type2"]
+            answers = self.rank_answers(answers,
+                                        aggr_type1_for_r,
+                                        aggr_type2_for_r)
             if len(answers) > 0:
-                aggr_type1_for_r = self.args.aggr_type1 if self.per_relation_config is None \
-                    else self.per_relation_config[r]["aggr_type1"]
-                aggr_type2_for_r = self.args.aggr_type2 if self.per_relation_config is None \
-                    else self.per_relation_config[r]["aggr_type2"]
-                answers = self.rank_answers(answers,
-                                            aggr_type1_for_r,
-                                            aggr_type2_for_r)
                 acc = self.get_accuracy(e2_list, [k[0] for k in answers])
                 _10, _5, _3, _1, rr = self.get_hits([k[0] for k in answers], e2_list, query=(e1, r))
                 hits_10 += _10
@@ -502,8 +504,16 @@ class ProbCBR(object):
             with open(input_file) as fin:
                 for line in fin:
                     e1, r, e2 = line.strip().split("\t")
+                    if len(self.top_query_preds[(e1, r, e2)]) < 10:
+                        num_missing = 10 - len(self.top_query_preds[(e1, r, e2)])
+                        self.top_query_preds[(e1, r, e2)].append(
+                            np.random.choice(len(self.entity_vocab), num_missing, replace=False))
                     top10_tails.append([int(x) for x in self.top_query_preds[(e1, r, e2)]])
                     r_inv = r + "_inv"
+                    if len(self.top_query_preds[(e2, r_inv, e1)]) < 10:
+                        num_missing = 10 - len(self.top_query_preds[(e2, r_inv, e1)])
+                        self.top_query_preds[(e2, r_inv, e1)].append(
+                            np.random.choice(len(self.entity_vocab), num_missing, replace=False))
                     top10_heads.append([int(x) for x in self.top_query_preds[(e2, r_inv, e1)]])
             top10_heads = torch.tensor(top10_heads)
             top10_tails = torch.tensor(top10_tails)
@@ -535,9 +545,10 @@ def main(args):
                 args.test_file = os.path.join(data_dir, "test.txt")
         elif args.specific_rel is not None:
             args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt.small")
+            args.test_file = os.path.join(data_dir, "test.txt")
         else:
             args.dev_file = os.path.join(data_dir, "dev.txt.small")
-            args.dev_file = os.path.join(data_dir, "test.txt")
+            args.test_file = os.path.join(data_dir, "test.txt")
     else:
         if args.input_file_name is not None:
             if args.test:
@@ -548,6 +559,8 @@ def main(args):
                 args.test_file = os.path.join(data_dir, "test.txt")
         elif args.specific_rel is not None:
             args.dev_file = os.path.join(data_dir, f"dev.{args.specific_rel}.txt")
+            args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
+                else os.path.join(data_dir, args.test_file_name)
         else:
             args.dev_file = os.path.join(data_dir, "dev.txt")
             args.test_file = os.path.join(data_dir, "test.txt") if not args.test_file_name \
@@ -734,7 +747,7 @@ if __name__ == '__main__':
         wandb.init(project='pr-cbr')
 
     if args.input_file_name is not None:
-        args.name_of_run = args.input_file_name+"_"+str(uuid.uuid4())[:8]
+        args.name_of_run = args.input_file_name + "_" + str(uuid.uuid4())[:8]
     if args.name_of_run == "unset":
         args.name_of_run = str(uuid.uuid4())[:8]
 
