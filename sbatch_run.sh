@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #SBATCH --job-name=Prob-CBR
-#SBATCH --output=logs/obl-small-per-relation-%A_%a.out
+#SBATCH --output=logs/obl-per-relation-%A_%a.out
 #SBATCH --partition=longq
 #SBATCH --time=07-00:00:00
 #SBATCH --mem=10G
-#SBATCH --array=0-29
+#SBATCH --array=0-49
 
 # Set to scratch/work since server syncing will occur from here
 # Ensure sufficient space else runs crash without error message
@@ -24,4 +24,5 @@ pwd
 #conda activate pyenv
 cd src
 export PYTHONPATH=`pwd`:$PYTHONPATH
-wandb agent ameyag416/pr-cbr/guwx3wex
+cd ..
+wandb agent ameyag416/pr-cbr/4a61qlsb
