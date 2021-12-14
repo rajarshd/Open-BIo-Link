@@ -1,7 +1,4 @@
-import os
-import logging
-from tqdm import tqdm
-import pickle
+import scipy.sparse
 import numpy as np
 from typing import *
 from prob_cbr.data.data_utils import read_graph
@@ -27,24 +24,35 @@ def get_programs(e: str, ans: str, all_paths_around_e: List[List[str]]):
     return all_programs
 
 
-def execute_one_program(train_map, e: str, path: List[str], depth: int, max_branch: int):
+def execute_one_program(sparse_adj_mats: Dict[str, scipy.sparse.csr_matrix], entity_vocab: Dict[str, int], e: str,
+                        path: List[str]) -> np.ndarray:
     """
     starts from an entity and executes the path by doing depth first search. If there are multiple edges with the same label, we consider
     max_branch number.
     """
-    if depth == len(path):
-        # reached end, return node
-        return [e]
-    next_rel = path[depth]
-    next_entities = train_map[(e, path[depth])]
-    # next_entities = list(set(self.train_map[(e, path[depth])] + self.args.rotate_edges[(e, path[depth])][:5]))
-    if len(next_entities) == 0:
-        # edge not present
-        return []
-    if len(next_entities) > max_branch:
-        # select max_branch random entities
-        next_entities = np.random.choice(next_entities, max_branch, replace=False).tolist()
-    answers = []
-    for e_next in next_entities:
-        answers += execute_one_program(train_map, e_next, path, depth + 1, max_branch)
-    return answers
+    src_vec = np.zeros((len(entity_vocab), 1), dtype=np.uint32)
+    src_vec[entity_vocab[e]] = 1
+    ent_vec = scipy.sparse.csr_matrix(src_vec)
+    for r in path:
+        ent_vec = sparse_adj_mats[r] * ent_vec
+    final_counts = ent_vec.toarray().reshape(-1)
+    return final_counts
+
+
+def create_sparse_adj_mats(train_map, entity_vocab, rel_vocab):
+    sparse_adj_mats = {}
+    csr_data, csr_row, csr_col = {}, {}, {}
+    for (e1, r), e2_list in train_map.items():
+        _ = csr_data.setdefault(r, [])
+        _ = csr_row.setdefault(r, [])
+        _ = csr_col.setdefault(r, [])
+        for e2 in e2_list:
+            csr_data[r].append(1)
+            csr_row[r].append(entity_vocab[e2])
+            csr_col[r].append(entity_vocab[e1])
+    for r in rel_vocab:
+        sparse_adj_mats[r] = scipy.sparse.csr_matrix((np.array(csr_data[r], dtype=np.uint32),  # data
+                                                      (np.array(csr_row[r], dtype=np.int64),  # row
+                                                       np.array(csr_col[r], dtype=np.int64)))  # col
+                                                     , shape=(len(entity_vocab), len(entity_vocab)))
+    return sparse_adj_mats

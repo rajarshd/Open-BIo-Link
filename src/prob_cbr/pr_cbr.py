@@ -1,9 +1,9 @@
 import argparse
 import numpy as np
 from scipy.special import logsumexp
-import scipy.sparse
 import os
 from tqdm import tqdm
+import scipy.sparse
 from collections import defaultdict
 import pickle
 import torch
@@ -14,7 +14,7 @@ import json
 import sys
 import wandb
 from prob_cbr.preprocessing.preprocessing import combine_path_splits
-from prob_cbr.utils import get_programs
+from prob_cbr.utils import get_programs, create_sparse_adj_mats, execute_one_program
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
     read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
 
@@ -41,28 +41,9 @@ class ProbCBR(object):
         self.per_relation_config = per_relation_config
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
-        self.sparse_adj_mats = {}
-        self.top_query_preds = {}
-        self.create_sparse_adj_mats()
-
-    def create_sparse_adj_mats(self):
         logger.info("Building sparse adjacency matrices")
-        csr_data, csr_row, csr_col = {}, {}, {}
-        for (e1, r), e2_list in self.train_map.items():
-            _ = csr_data.setdefault(r, [])
-            _ = csr_row.setdefault(r, [])
-            _ = csr_col.setdefault(r, [])
-            for e2 in e2_list:
-                csr_data[r].append(1)
-                csr_row[r].append(self.entity_vocab[e2])
-                csr_col[r].append(self.entity_vocab[e1])
-        for r in self.rel_vocab:
-            self.sparse_adj_mats[r] = scipy.sparse.csr_matrix((np.array(csr_data[r], dtype=np.uint32),  # data
-                                                               (np.array(csr_row[r], dtype=np.int64),  # row
-                                                                np.array(csr_col[r], dtype=np.int64))  # col
-                                                               ),
-                                                              shape=(len(self.entity_vocab), len(self.entity_vocab))
-                                                              )
+        self.sparse_adj_mats = create_sparse_adj_mats(self.train_map, self.entity_vocab, self.rel_vocab)
+        self.top_query_preds = {}
 
     def set_nearest_neighbor_1_hop(self, nearest_neighbor_1_hop):
         self.nearest_neighbor_1_hop = nearest_neighbor_1_hop
@@ -158,19 +139,6 @@ class ProbCBR(object):
 
         return sorted_programs
 
-    def execute_one_program(self, e: str, path: List[str], depth: int, max_branch: int) -> np.ndarray:
-        """
-        starts from an entity and executes the path by doing depth first search. If there are multiple edges with the same label, we consider
-        max_branch number.
-        """
-        src_vec = np.zeros((len(self.entity_vocab), 1), dtype=np.uint32)
-        src_vec[self.entity_vocab[e]] = 1
-        ent_vec = scipy.sparse.csr_matrix(src_vec)
-        for r in path:
-            ent_vec = self.sparse_adj_mats[r] * ent_vec
-        final_counts = ent_vec.toarray().reshape(-1)
-        return final_counts
-
     def execute_programs(self, e: str, r: str, path_list: List[List[str]], max_branch: Optional[int] = 1000) \
             -> Tuple[List[Tuple[np.ndarray, float, List[str]]], List[List[str]]]:
 
@@ -200,7 +168,7 @@ class ProbCBR(object):
         for path in path_list:
             if executed_path_counter == max_num_programs_for_r:
                 break
-            ans = self.execute_one_program(e, path, depth=0, max_branch=max_branch)
+            ans = execute_one_program(self.sparse_adj_mats, self.entity_vocab, e, path)
             if self.args.use_path_counts:
                 try:
                     if path in self.args.path_prior_map_per_relation[self.c][r] and path in \

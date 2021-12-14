@@ -15,7 +15,7 @@ import time
 
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
     read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
-from prob_cbr.utils import execute_one_program, get_programs, get_adj_mat
+from prob_cbr.utils import execute_one_program, get_programs, get_adj_mat, create_sparse_adj_mats
 from numpy.random import default_rng
 
 rng = default_rng()
@@ -220,12 +220,13 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
             success_map[c][r] = {}
         if r not in total_map[c]:
             total_map[c][r] = {}
-        if r in args.path_prior_map_per_relation[c]:
-            paths_for_this_relation = args.path_prior_map_per_relation[c][r]
+        if r in args.path_prior_map_per_entity[c]:
+            paths_for_this_relation = args.path_prior_map_per_entity[c][r]
         else:
             continue  # if a relation is missing from prior map, then no need to calculate precision for that relation.
         for p_ctr, (path, _) in enumerate(paths_for_this_relation.items()):
-            ans = execute_one_program(args.train_map, e1, path, depth=0, max_branch=100)
+            ans_vec = execute_one_program(args.sparse_adj_mats, args.entity_vocab, e1, path)
+            ans = [args.rev_entity_vocab[d_e[0]] for d_e in np.nonzero(ans_vec)]
             if len(ans) == 0:
                 continue
             # execute the path get answer
@@ -468,6 +469,8 @@ if __name__ == '__main__':
     args.dev_map = dev_map
     args.test_map = test_map
     adj_mat = get_adj_mat(kg_file, entity_vocab, rel_vocab)
+    logger.info("Building sparse adjacency matrices")
+    args.sparse_adj_mats = create_sparse_adj_mats(args.train_map, args.entity_vocab, args.rel_vocab)
     if args.calculate_ent_similarity:
         logger.info("Calculating entity similarity matrix...")
         adj_mat = torch.from_numpy(adj_mat)
@@ -578,11 +581,9 @@ if __name__ == '__main__':
         logger.info("Loading prior map...")
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
                                 "per_entity_maps")
-        with open(
-                os.path.join(dir_name, "prior_maps", "path_{}".format(args.num_paths_to_collect), "path_prior_map.pkl"),
-                "rb") as fin:
-            args.path_prior_map_per_relation = pickle.load(fin)
-        assert args.path_prior_map_per_relation is not None
+        per_entity_prior_map_dir = os.path.join(dir_name, "prior_maps", "path_{}".format(args.num_paths_to_collect))
+        args.path_prior_map_per_entity = combine_path_splits(per_entity_prior_map_dir)
+        assert args.path_prior_map_per_entity is not None
         dir_name = os.path.join(dir_name, "precision_maps", "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
