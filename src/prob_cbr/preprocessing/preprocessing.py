@@ -66,7 +66,6 @@ def get_paths(args, train_adj_list, start_node, max_len=3):
 
 
 def combine_path_splits(data_dir, file_prefix=None):
-
     combined_paths = defaultdict(list)
     # combined_paths = []
     file_names = []
@@ -126,7 +125,7 @@ def get_paths_parallel(args, kg_file, out_dir, job_id=0, total_jobs=1):
     fout.close()
 
 
-def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
+def combine_precision_maps(args, dir_name, output_dir_name, output_file_name="precision_map.pkl"):
     """
     Combines all the individual maps
     :param dir_name:
@@ -144,27 +143,29 @@ def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
                 all_denominator_maps.append(count_maps["denominator_map"])
     assert len(all_numerator_maps) == len(all_denominator_maps)
     for numerator_map, denominator_map in zip(all_numerator_maps, all_denominator_maps):
-        for c, _ in numerator_map.items():
-            for r, _ in numerator_map[c].items():
-                for path, s_c in numerator_map[c][r].items():
+        for e, _ in numerator_map.items():
+            c = args.cluster_assignments[e]
+            for r, _ in numerator_map[e].items():
+                for path, s_c in numerator_map[e][r].items():
                     if c not in combined_numerator_map:
                         combined_numerator_map[c] = {}
                     if r not in combined_numerator_map[c]:
                         combined_numerator_map[c][r] = {}
                     if path not in combined_numerator_map[c][r]:
                         combined_numerator_map[c][r][path] = 0
-                    combined_numerator_map[c][r][path] += numerator_map[c][r][path]
+                    combined_numerator_map[c][r][path] += numerator_map[e][r][path]
 
-        for c, _ in denominator_map.items():
-            for r, _ in denominator_map[c].items():
-                for path, s_c in denominator_map[c][r].items():
+        for e, _ in denominator_map.items():
+            c = args.cluster_assignments[e]
+            for r, _ in denominator_map[e].items():
+                for path, s_c in denominator_map[e][r].items():
                     if c not in combined_denominator_map:
                         combined_denominator_map[c] = {}
                     if r not in combined_denominator_map[c]:
                         combined_denominator_map[c][r] = {}
                     if path not in combined_denominator_map[c][r]:
                         combined_denominator_map[c][r][path] = 0
-                    combined_denominator_map[c][r][path] += denominator_map[c][r][path]
+                    combined_denominator_map[c][r][path] += denominator_map[e][r][path]
     # now calculate precision
     ratio_map = {}
     for c, _ in combined_numerator_map.items():
@@ -180,7 +181,7 @@ def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
                     import pdb
                     pdb.set_trace()
 
-    output_filenm = os.path.join(dir_name, output_file_name)
+    output_filenm = os.path.join(output_dir_name, output_file_name)
     logger.info("Dumping ratio map at {}".format(output_filenm))
     with open(output_filenm, "wb") as fout:
         pickle.dump(ratio_map, fout)
@@ -210,7 +211,7 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
             continue
         if e_ctr % 100 == 0:
             logger.info("Processing entity# {}".format(e_ctr))
-        c = args.cluster_assignments[args.entity_vocab[e1]]
+        c = args.entity_vocab[e1]  # calculate stats for each entity
         if c not in success_map:
             success_map[c] = {}
         if c not in total_map:
@@ -243,7 +244,7 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
     logger.info("Done...")
 
 
-def combine_prior_maps(dir_name, output_file_name="path_prior_map.pkl"):
+def combine_prior_maps(args, dir_name, output_dir, output_file_name="path_prior_map.pkl"):
     all_program_maps = []
     combined_program_maps = {}
     logger.info("Combining prior maps located in {}".format(dir_name))
@@ -255,16 +256,17 @@ def combine_prior_maps(dir_name, output_file_name="path_prior_map.pkl"):
                 all_program_maps.append(program_maps)
 
     for program_map in all_program_maps:
-        for c, _ in program_map.items():
-            for r, _ in program_map[c].items():
-                for path, s_c in program_map[c][r].items():
+        for e, _ in program_map.items():
+            c = args.cluster_assignments[e]
+            for r, _ in program_map[e].items():
+                for path, s_c in program_map[e][r].items():
                     if c not in combined_program_maps:
                         combined_program_maps[c] = {}
                     if r not in combined_program_maps[c]:
                         combined_program_maps[c][r] = {}
                     if path not in combined_program_maps[c][r]:
                         combined_program_maps[c][r][path] = 0
-                    combined_program_maps[c][r][path] += program_map[c][r][path]
+                    combined_program_maps[c][r][path] += program_map[e][r][path]
 
     for c, _ in combined_program_maps.items():
         for r, path_counts in combined_program_maps[c].items():
@@ -274,7 +276,7 @@ def combine_prior_maps(dir_name, output_file_name="path_prior_map.pkl"):
             for p, p_c in path_counts.items():
                 combined_program_maps[c][r][p] = p_c / sum_path_counts
 
-    output_filenm = os.path.join(dir_name, output_file_name)
+    output_filenm = os.path.join(output_dir, output_file_name)
     logger.info("Dumping ratio map at {}".format(output_filenm))
     with open(output_filenm, "wb") as fout:
         pickle.dump(combined_program_maps, fout)
@@ -303,7 +305,7 @@ def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0, total_jobs=1)
             continue
         if e_ctr % 100 == 0:
             logger.info("Processing entity #{}".format(e_ctr))
-        c = args.cluster_assignments[args.entity_vocab[e1]]
+        c = args.entity_vocab[e1]  # calculate stats for each entity
         if c not in programs_map:
             programs_map[c] = {}
         if r not in programs_map[c]:
@@ -418,19 +420,6 @@ if __name__ == '__main__':
         if not os.path.exists(subgraph_dir):  # subgraph dir is the output dir
             os.makedirs(subgraph_dir)
         get_paths_parallel(args, kg_file, subgraph_dir, args.current_job, args.total_jobs)
-        sys.exit(0)
-
-    if args.combine_prior_map:
-        dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage), "prior_maps",
-                                "path_{}".format(args.num_paths_to_collect))
-        combine_prior_maps(dir_name)
-        sys.exit(0)
-    if args.combine_precision_map:
-        dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage), "precision_maps",
-                                "path_{}".format(args.num_paths_to_collect))
-        combine_precision_maps(dir_name)
         sys.exit(0)
 
     logger.info("Loading train map")
@@ -548,15 +537,15 @@ if __name__ == '__main__':
             pickle.dump(args.cluster_assignments, fout)
             fout.close()
 
-    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
-    logger.info("Loading cluster assignments of entities from {}".format(os.path.join(dir_name, "cluster_assignments.pkl")))
+    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster")
+    logger.info(
+        "Loading cluster assignments of entities from {}".format(os.path.join(dir_name, "cluster_assignments.pkl")))
     with open(os.path.join(dir_name, "cluster_assignments.pkl"), "rb") as fin:
         args.cluster_assignments = pickle.load(fin)
 
     if args.calculate_prior_map_parallel:
         logger.info(
             "Calculating prior map. Current job id: {}, Total jobs: {}".format(args.current_job, args.total_jobs))
-        assert args.cluster_assignments is not None
         logger.info("Loading subgraph around entities:")
         file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_to_collect, args.max_len)
         all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
@@ -565,11 +554,22 @@ if __name__ == '__main__':
         assert args.all_paths is not None
         assert args.train_map is not None
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage), "prior_maps",
+                                "per_entity_maps", "prior_maps",
                                 "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         calc_prior_path_prob_parallel(args, dir_name, args.current_job, args.total_jobs)
+
+    if args.combine_prior_map:
+        assert args.cluster_assignments is not None
+        input_dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
+                                      "per_entity_maps", "prior_maps",
+                                      "path_{}".format(args.num_paths_to_collect))
+        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster", "prior_maps",
+                                       "path_{}".format(args.num_paths_to_collect))
+        if not os.path.exists(output_dir_name):
+            os.makedirs(output_dir_name)
+        combine_prior_maps(args, input_dir_name, output_dir_name)
 
     if args.calculate_precision_map_parallel:
         logger.info(
@@ -577,7 +577,7 @@ if __name__ == '__main__':
         assert args.train_map is not None
         logger.info("Loading prior map...")
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage))
+                                "per_entity_maps")
         with open(
                 os.path.join(dir_name, "prior_maps", "path_{}".format(args.num_paths_to_collect), "path_prior_map.pkl"),
                 "rb") as fin:
@@ -587,3 +587,13 @@ if __name__ == '__main__':
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         calc_precision_map_parallel(args, dir_name, args.current_job, args.total_jobs)
+
+    if args.combine_precision_map:
+        dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
+                                "per_entity_maps", "precision_maps",
+                                "path_{}".format(args.num_paths_to_collect))
+        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster", "precision_maps",
+                                       "path_{}".format(args.num_paths_to_collect))
+        if not os.path.exists(output_dir_name):
+            os.makedirs(output_dir_name)
+        combine_precision_maps(args, dir_name, output_dir_name)
