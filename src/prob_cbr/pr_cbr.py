@@ -83,7 +83,7 @@ class ProbCBR(object):
                     nearest_entities = [self.rel_ent_map[r][r_idx] for r_idx in random_idx]
         if nearest_entities is None or len(nearest_entities) == 0:
             self.all_num_ret_nn.append(0)
-            return None
+            return []
         self.all_num_ret_nn.append(len(nearest_entities))
         zero_ctr = 0
         for e in nearest_entities:
@@ -597,7 +597,7 @@ def main(args):
     prob_cbr_agent.set_nearest_neighbor_1_hop(arg_sim)
 
     ########### cluster entities ###########
-    dir_name = os.path.join(data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
+    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster")
     cluster_file_name = os.path.join(dir_name, "cluster_assignments.pkl")
     if os.path.exists(cluster_file_name):
         with open(cluster_file_name, "rb") as fin:
@@ -605,9 +605,10 @@ def main(args):
     else:
         logger.info(
             "Clustering file not found at {}. Please run the preprocessing script first".format(cluster_file_name))
+        sys.exit(1)
 
     ########### load prior maps ###########
-    path_prior_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "prior_maps",
+    path_prior_map_filenm = os.path.join(data_dir, "affinity_cluster", "prior_maps",
                                          "path_{}".format(args.num_paths_around_entities), "path_prior_map.pkl")
     logger.info("Loading path prior weights")
     if os.path.exists(path_prior_map_filenm):
@@ -633,7 +634,7 @@ def main(args):
     args.linkage = linkage_bck
 
     ########### load precision maps ###########
-    precision_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "precision_maps",
+    precision_map_filenm = os.path.join(data_dir, "affinity_cluster", "precision_maps",
                                         "path_{}".format(args.num_paths_around_entities), "precision_map.pkl")
     logger.info("Loading precision map")
     if os.path.exists(precision_map_filenm):

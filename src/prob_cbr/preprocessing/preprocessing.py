@@ -226,7 +226,7 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
             continue  # if a relation is missing from prior map, then no need to calculate precision for that relation.
         for p_ctr, (path, _) in enumerate(paths_for_this_relation.items()):
             ans_vec = execute_one_program(args.sparse_adj_mats, args.entity_vocab, e1, path)
-            ans = [args.rev_entity_vocab[d_e[0]] for d_e in np.nonzero(ans_vec)]
+            ans = [args.rev_entity_vocab[d_e] for d_e in np.nonzero(ans_vec)[0]]
             if len(ans) == 0:
                 continue
             # execute the path get answer

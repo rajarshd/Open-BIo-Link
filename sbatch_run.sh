@@ -3,9 +3,9 @@
 #SBATCH --output=logs/obl-per-relation-%A_%a.out
 #SBATCH --partition=longq
 #SBATCH --time=07-00:00:00
-#SBATCH --mem=20G
-#SBATCH --array=0-9
-#SBATCH --exclude=swarm104,swarm105,swarm037,swarm038,swarm035,swarm036
+#SBATCH --mem=80G
+#SBATCH --array=0-29
+#SBATCH --exclude=swarm[001-021,025-028,030,032-038,068-072,076,104-105,022-024,051,103,052-055,031,029]
 # Set to scratch/work since server syncing will occur from here
 # Ensure sufficient space else runs crash without error message
 
@@ -16,14 +16,14 @@
 #conda activate obl
 #wandb agent rajarshd/Open-BIo-Link-src_prob_cbr/9neli3pq
 
-source /mnt/nfs/work1/pthomas/agodbole/Open-BIo-Link/wandb_settings.sh
-export WANDB_DIR="./wandb_dir/"
-export TMPDIR="./tmp_dir/"
-export PYTHONUNBUFFERED=1
-pwd
+#source /mnt/nfs/work1/pthomas/agodbole/Open-BIo-Link/wandb_settings.sh
+#export WANDB_DIR="./wandb_dir/"
+#export TMPDIR="./tmp_dir/"
+#export PYTHONUNBUFFERED=1
+#pwd
 
 #conda activate pyenv
 cd src
 export PYTHONPATH=`pwd`:$PYTHONPATH
 cd ..
-wandb agent ameyag416/pr-cbr/79aqqgx8
+wandb agent rajarshd/pr-cbr/21j6vk1m
