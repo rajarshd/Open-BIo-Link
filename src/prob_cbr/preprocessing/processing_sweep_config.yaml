@@ -11,14 +11,10 @@ parameters:
     value: /home/rajarshi/Dropbox/research/Open-BIo-Link/
   dataset_name:
     value: obl2021
-  subgraph_file_name:
-    value: combined_paths_1000_len_3_no_loops.pkl
   num_paths_to_collect:
-    value: 1000
+    value: 5000
   expt_dir:
     value: /mnt/nfs/work1/mccallum/rajarshi/expts/obl/
-  linkage:
-    value: 0
   total_jobs:
     value: 100
   current_job:
