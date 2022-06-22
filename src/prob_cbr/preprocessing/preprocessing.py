@@ -89,7 +89,6 @@ def combine_path_splits(data_dir, file_prefix=None):
 
 def get_paths_parallel(args, kg_file, out_dir, job_id=0, total_jobs=1):
     """
-
     :param kg_file:
     :return:
     """
@@ -539,8 +538,8 @@ if __name__ == '__main__':
             fout = open(os.path.join(dir_name, "cluster_assignments.pkl"), "wb")
             pickle.dump(args.cluster_assignments, fout)
             fout.close()
-
-    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster")
+            sys.exit(0)
+    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
     logger.info(
         "Loading cluster assignments of entities from {}".format(os.path.join(dir_name, "cluster_assignments.pkl")))
     with open(os.path.join(dir_name, "cluster_assignments.pkl"), "rb") as fin:
