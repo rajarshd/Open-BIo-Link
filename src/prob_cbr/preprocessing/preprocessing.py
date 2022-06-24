@@ -65,7 +65,7 @@ def get_paths(args, train_adj_list, start_node, max_len=3):
     return all_paths
 
 
-def combine_path_splits(data_dir, file_prefix=None):
+def combine_path_splits(data_dir, file_prefix=None, job_id=0, total_jobs=1):
     combined_paths = defaultdict(list)
     # combined_paths = []
     file_names = []
@@ -75,7 +75,16 @@ def combine_path_splits(data_dir, file_prefix=None):
                 if not f.startswith(file_prefix):
                     continue
             file_names.append(f)
-    for f in file_names:
+    total_num_files = len(file_names)
+    # sort this list so that every job gets the same list for processing
+    file_names = sorted(file_names)
+    job_size = total_num_files / total_jobs
+    st = job_id * job_size
+    en = min((job_id + 1) * job_size, total_num_files)
+    logger.info("Start of partition: {}, End of partition: {}".format(st, en))
+    for file_ctr, f in enumerate(file_names):
+        if file_ctr < st or file_ctr >= en:
+            continue
         logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
         with open(os.path.join(data_dir, f), "rb") as fin:
             paths = pickle.load(fin)
@@ -283,7 +292,7 @@ def combine_prior_maps(args, dir_name, output_dir, output_file_name="path_prior_
     logger.info("Done...")
 
 
-def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0, total_jobs=1):
+def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0):
     """
     Calculate how probable a path is given a query relation, i.e P(path|query rel)
     For each entity in the graph, count paths that exists for each relation in the
@@ -292,17 +301,8 @@ def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0, total_jobs=1)
     """
     logger.info("Calculating prior map")
     programs_map = {}
-    job_size = len(args.train_map) / total_jobs
-    st = job_id * job_size
-    en = min((job_id + 1) * job_size, len(args.train_map))
-    logger.info("Start of partition: {}, End of partition: {}".format(st, en))
     train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in args.train_map.items()]
-    # sort this list so that every job gets the same list for processing
-    train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in sorted(train_map, key=lambda item: item[0])]
     for e_ctr, ((e1, r), e2_list) in enumerate(tqdm((train_map))):
-        if e_ctr < st or e_ctr >= en:
-            # not this partition
-            continue
         if e_ctr % 100 == 0:
             logger.info("Processing entity #{}".format(e_ctr))
         c = args.entity_vocab[e1]  # calculate stats for each entity
@@ -550,7 +550,8 @@ if __name__ == '__main__':
             "Calculating prior map. Current job id: {}, Total jobs: {}".format(args.current_job, args.total_jobs))
         logger.info("Loading subgraph around entities:")
         file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_to_collect, args.max_len)
-        all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
+        all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix, job_id=args.current_job,
+                                        total_jobs=args.total_jobs)
         logger.info("Done...")
         args.all_paths = all_paths
         assert args.all_paths is not None
@@ -560,7 +561,7 @@ if __name__ == '__main__':
                                 "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        calc_prior_path_prob_parallel(args, dir_name, args.current_job, args.total_jobs)
+        calc_prior_path_prob_parallel(args, dir_name, args.current_job)
 
     if args.combine_prior_map:
         assert args.cluster_assignments is not None
