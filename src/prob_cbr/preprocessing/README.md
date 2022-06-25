@@ -27,12 +27,12 @@ srun --mem=10G --partition=longq python src/prob_cbr/preprocessing/preprocessing
 
 ### 3. Compute ent-ent similarity
 ```
-srun --mem=10G --partition=longq python src/prob_cbr/preprocessing/preprocessing.py --dataset_name obl2021 --data_dir ./   --linkage 0 --calculate_ent_similarity  --use_wandb 1 --sim_batch_size 1024
+srun --mem=10G --partition=longq python src/prob_cbr/preprocessing/preprocessing.py --dataset_name obl2021 --data_dir ./   --linkage 0.0 --calculate_ent_similarity  --use_wandb 1 --sim_batch_size 1024
 ```
 
 ### 4. Compute the prior maps
 ```
-python src/prob_cbr/preprocessing/preprocessing.py --calculate_prior_map_parallel --add_inv_edges --current_job=0 --total_jobs=1 --dataset_name=obl2021 --num_paths_to_collect=10000 --data_dir=/home/rajarshi/Dropbox/research/Open-BIo-Link/ 
+python src/prob_cbr/preprocessing/preprocessing.py --calculate_prior_map_parallel --add_inv_edges --current_job=0 --total_jobs=1 --linkage 0.0 --dataset_name=obl2021 --num_paths_to_collect=10000 --data_dir=/home/rajarshi/Dropbox/research/Open-BIo-Link/ 
 ``` 
 You can again, parallelize this by running multiple processes and setting ``total_jobs`` equal to the number of processes and setting ``current_job`` respectively
 To combine the prior maps, run:
@@ -41,6 +41,7 @@ python src/prob_cbr/preprocessing/preprocessing.py --combine_prior_map --dataset
 ```
 ### 5. Compute the precision maps
 ```
+python src/prob_cbr/preprocessing/preprocessing.py --calculate_precision_map_parallel --add_inv_edges --linkage 0.0 --current_job=0 --total_jobs=1 --dataset_name=obl2021 --num_paths_to_collect=10000 --data_dir=/home/rajarshi/Dropbox/research/Open-BIo-Link/ 
 ``` 
 You can again, parallelize this by running multiple processes and setting ``total_jobs`` equal to the number of processes and setting ``current_job`` respectively
 To combine the precision maps, run:
