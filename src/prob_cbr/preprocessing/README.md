@@ -21,7 +21,9 @@ python src/prob_cbr/preprocessing/preprocessing.py --get_paths_parallel --add_in
 For our setup we use wandb and slurm to parallelize. If you have a similar setup refer to `src/prob_cbr/preprocessing/{processing_sweep_config.yaml, sbatch_run.sh}`.
 
 ### 2. Create vocab
+```
 python src/prob_cbr/preprocessing/preprocessing.py --dataset_name=obl2021 --data_dir=/home/rajarshi/Dropbox/research/Open-BIo-Link/ --create_vocab
+```
 
 ### 3. Cluster entities
 TBD (righnow linkage is set to 0, i.e. 1 cluster for all entities)
