@@ -13,10 +13,10 @@ import logging
 import json
 import sys
 import wandb
-from prob_cbr.preprocessing.preprocessing import combine_path_splits
+
 from prob_cbr.utils import get_programs, create_sparse_adj_mats, execute_one_program
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
-    read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
+    read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list, load_subgraphs
 
 logger = logging.getLogger()
 logging.basicConfig(
@@ -576,12 +576,6 @@ def main(args):
                                        os.path.join(data_dir, 'test.txt'))
     args.all_kg_map = all_kg_map
 
-    ########### Load all paths ###########
-    file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_around_entities, args.max_path_len)
-    all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
-
-    prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
-                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map, per_relation_config)
     ########### entity sim ###########
     if os.path.exists(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")):
         with open(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl"), "rb") as fin:
@@ -594,10 +588,29 @@ def main(args):
                 os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")))
         sys.exit(1)
     assert arg_sim is not None
+
+    # we will load all_paths later; look below
+    all_paths = None
+    prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
+                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map, per_relation_config)
+
     prob_cbr_agent.set_nearest_neighbor_1_hop(arg_sim)
 
+    ########### Load all paths ###########
+    # get all nearest neighbors of all queries and load paths around them only. This lets
+    # us save memory, since loading the paths files can take a lot of memory especially ~ >=5K paths
+    all_nns = set()
+    for (e1, r) in eval_map.keys():
+        nearest_neighbors = prob_cbr_agent.get_nearest_neighbor_inner_product(e1, r,
+                                                                              k=100)  # collect paths for more entities than required
+        for nn in nearest_neighbors:
+            all_nns.add(nn)
+    file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_around_entities, args.max_path_len)
+    all_paths = load_subgraphs(all_nns, subgraph_dir, file_prefix)
+    # set all_paths for pr_cbr object
+    prob_cbr_agent.all_paths = all_paths
     ########### cluster entities ###########
-    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster")
+    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
     cluster_file_name = os.path.join(dir_name, "cluster_assignments.pkl")
     if os.path.exists(cluster_file_name):
         with open(cluster_file_name, "rb") as fin:
@@ -608,7 +621,7 @@ def main(args):
         sys.exit(1)
 
     ########### load prior maps ###########
-    path_prior_map_filenm = os.path.join(data_dir, "affinity_cluster", "prior_maps",
+    path_prior_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "prior_maps",
                                          "path_{}".format(args.num_paths_around_entities), "path_prior_map.pkl")
     logger.info("Loading path prior weights")
     if os.path.exists(path_prior_map_filenm):
@@ -634,7 +647,7 @@ def main(args):
     args.linkage = linkage_bck
 
     ########### load precision maps ###########
-    precision_map_filenm = os.path.join(data_dir, "affinity_cluster", "precision_maps",
+    precision_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "precision_maps",
                                         "path_{}".format(args.num_paths_around_entities), "precision_map.pkl")
     logger.info("Loading precision map")
     if os.path.exists(precision_map_filenm):

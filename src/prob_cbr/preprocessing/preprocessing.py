@@ -91,8 +91,6 @@ def combine_path_splits(data_dir, file_prefix=None, job_id=0, total_jobs=1):
             # combined_paths.append(paths)
             for k, v in paths.items():
                 combined_paths[k] = v
-    # import pdb
-    # pdb.set_trace()
     return combined_paths
 
 
@@ -568,7 +566,7 @@ if __name__ == '__main__':
         input_dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
                                       "per_entity_maps", "prior_maps",
                                       "path_{}".format(args.num_paths_to_collect))
-        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster", "prior_maps",
+        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage=0.0", "prior_maps",
                                        "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(output_dir_name):
             os.makedirs(output_dir_name)
@@ -593,7 +591,7 @@ if __name__ == '__main__':
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
                                 "per_entity_maps", "precision_maps",
                                 "path_{}".format(args.num_paths_to_collect))
-        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "affinity_cluster", "precision_maps",
+        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage=0.0", "precision_maps",
                                        "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(output_dir_name):
             os.makedirs(output_dir_name)

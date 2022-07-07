@@ -3,7 +3,7 @@ import wandb
 from tqdm import tqdm
 
 api = wandb.Api()
-sweep = api.sweep("rajarshd/pr-cbr/21j6vk1m")
+sweep = api.sweep("ameyag416/pr-cbr/guwx3wex")
 all_finished_runs = {}
 finished_run_ctr = 0
 for run in tqdm(sweep.runs):
@@ -15,7 +15,7 @@ for run in tqdm(sweep.runs):
         finished_run_ctr += 1
 
 print(f"{finished_run_ctr} runs stored")
-with open("sweep_21j6vk1m_finished_runs.json", 'w') as fout:
+with open("sweep_guwx3wex_finished_runs.json", 'w') as fout:
     json.dump(all_finished_runs, fout, indent=1)
 
 
@@ -29,7 +29,7 @@ all_finished_runs_sorted = {}
 for specific_rel, runs in all_finished_runs.items():
     all_finished_runs_sorted[specific_rel] = sorted(runs, key=sorting_priority, reverse=True)
 
-with open("sweep_21j6vk1m_finished_runs_sorted.json", 'w') as fout:
+with open("sweep_guwx3wex_finished_runs_sorted.json", 'w') as fout:
     json.dump(all_finished_runs_sorted, fout, indent=1)
 
 
@@ -53,7 +53,7 @@ for specific_rel, runs in all_finished_runs_sorted.items():
     print(specific_rel)
     clipped_finished_runs_sorted[specific_rel] = clip_runs(runs, best_scores)
 
-with open("sweep_21j6vk1m_finished_runs_clipped.json", 'w') as fout:
+with open("sweep_guwx3wex_finished_runs_clipped.json", 'w') as fout:
     json.dump(clipped_finished_runs_sorted, fout, indent=1)
 
 useful_config_keys = ["aggr_type1", "aggr_type2", "use_only_precision_scores",
@@ -65,7 +65,7 @@ for specific_rel, runs in clipped_finished_runs_sorted.items():
     rel_name = specific_rel if int(specific_rel) < 28 else f"{int(specific_rel)-28}_inv"
     per_rel_config[rel_name] = best_config_for_rel
 
-with open("sweep_21j6vk1m_best_per_rel_config.json", 'w') as fout:
+with open("sweep_guwx3wex_best_per_rel_config.json", 'w') as fout:
     json.dump(per_rel_config, fout, indent=1)
 
 # issues for: 16, 25_inv, 20_inv

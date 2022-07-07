@@ -4,8 +4,7 @@
 #SBATCH --partition=longq
 #SBATCH --time=07-00:00:00
 #SBATCH --mem=40G
-#SBATCH --array=0-1
-#SBATCH --exclude=swarm[001-009,010-038,068-090,104-105,051-055]
+#SBATCH --array=0-49
 # Set to scratch/work since server syncing will occur from here
 # Ensure sufficient space else runs crash without error message
 
@@ -26,4 +25,5 @@
 cd src
 export PYTHONPATH=`pwd`:$PYTHONPATH
 cd ..
-wandb agent rajarshd/pr-cbr/pd8wl0r8
+# https://wandb.ai/rajarshd/Open-BIo-Link-src_prob_cbr/sweeps/pba7tork
+wandb agent rajarshd/Open-BIo-Link-src_prob_cbr/pba7tork
