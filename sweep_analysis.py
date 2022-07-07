@@ -3,7 +3,7 @@ import wandb
 from tqdm import tqdm
 
 api = wandb.Api()
-sweep = api.sweep("ameyag416/pr-cbr/guwx3wex/")
+sweep = api.sweep("ameyag416/pr-cbr/guwx3wex")
 all_finished_runs = {}
 finished_run_ctr = 0
 for run in tqdm(sweep.runs):
@@ -66,6 +66,6 @@ for specific_rel, runs in clipped_finished_runs_sorted.items():
     per_rel_config[rel_name] = best_config_for_rel
 
 with open("sweep_guwx3wex_best_per_rel_config.json", 'w') as fout:
-    json.dump(per_rel_config, fout, indent=1, sort_keys=True)
+    json.dump(per_rel_config, fout, indent=1)
 
 # issues for: 16, 25_inv, 20_inv

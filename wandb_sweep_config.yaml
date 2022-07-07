@@ -1,11 +1,10 @@
 command:
 - ${interpreter}
 - ${program}
-- --small
 - --output_per_relation_scores
-- --use_only_precision_scores
+- --test
 - ${args}
-name: OBL-small-sparse-matrix-vec
+name: MRN_inference
 program: src/prob_cbr/pr_cbr.py
 method: bayes
 metric:
@@ -13,9 +12,11 @@ metric:
   name: hits_10
 parameters:
   dataset_name:
-    value: "obl2021"
+    value: "MRN_ind"
   data_dir:
-    value: "/home/rajarshi/Dropbox/research/Open-BIo-Link/"
+    value: "/mnt/nfs/home/rajarshi/Dropbox/research/drug_repurposing_prob_cbr/"
+  num_paths_around_entities:
+    value: 5000
   max_num_programs:
     min: 4
     max: 250
@@ -23,7 +24,7 @@ parameters:
     min: 2
     max: 50
   linkage:
-    value: 0
+    value: 0.0
   use_path_counts:
     value: 1
   aggr_type1:

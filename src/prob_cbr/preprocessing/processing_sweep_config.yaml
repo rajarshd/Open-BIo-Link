@@ -8,17 +8,15 @@ program: src/prob_cbr/preprocessing/preprocessing.py
 method: grid
 parameters:
   data_dir:
-    value: /home/rajarshi/Dropbox/research/Open-BIo-Link/
+    value: /mnt/nfs/home/rajarshi/Dropbox/research/drug_repurposing_prob_cbr/
   dataset_name:
-    value: obl2021
-  subgraph_file_name:
-    value: combined_paths_1000_len_3_no_loops.pkl
+    value: MRN_ind
   num_paths_to_collect:
-    value: 1000
-  expt_dir:
-    value: /mnt/nfs/work1/mccallum/rajarshi/expts/obl/
+    value: 5000
   linkage:
-    value: 0
+    value: 0.0
+  expt_dir:
+    value:  /mnt/nfs/work1/mccallum/rajarshi/expts/drug_repurposing_prob_cbr/
   total_jobs:
     value: 100
   current_job:

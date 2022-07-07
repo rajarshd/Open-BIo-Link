@@ -5,6 +5,17 @@ import tempfile
 from typing import DefaultDict, List, Tuple, Dict, Set
 import os
 import json
+import logging
+import pickle
+
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
+ch = logging.StreamHandler()
+ch.setLevel(logging.INFO)
+formatter = logging.Formatter("[%(asctime)s \t %(message)s]",
+                              "%Y-%m-%d %H:%M:%S")
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 
 def augment_kb_with_inv_edges(file_name: str) -> None:
@@ -52,7 +63,7 @@ def create_adj_list(file_name: str, add_inv_edges=True) -> DefaultDict[str, List
 #     return out_map
 
 
-def load_data(file_name: str, add_inv_rel: bool=True) -> DefaultDict[Tuple[str, str], list]:
+def load_data(file_name: str, add_inv_rel: bool = True) -> DefaultDict[Tuple[str, str], list]:
     out_map = defaultdict(list)
     fin = open(file_name)
 
@@ -66,6 +77,36 @@ def load_data(file_name: str, add_inv_rel: bool=True) -> DefaultDict[Tuple[str, 
             out_map[(e2, r_inv)].append(e1)
 
     return out_map
+
+
+def load_subgraphs(entity_list, data_dir, file_prefix=None):
+    """
+    Loads the subgraphs (paths) for only the entities present in entity_list
+    :param entity_list:
+    :param data_dir:
+    :param file_prefix:
+    :return:
+    """
+    combined_paths = defaultdict(list)
+    # combined_paths = []
+    file_names = []
+    for f in tqdm(os.listdir(data_dir)):
+        if os.path.isfile(os.path.join(data_dir, f)):
+            if file_prefix is not None:
+                if not f.startswith(file_prefix):
+                    continue
+            file_names.append(f)
+    for file_ctr, f in enumerate(file_names):
+        logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
+        with open(os.path.join(data_dir, f), "rb") as fin:
+            paths = pickle.load(fin)
+            # combined_paths.append(paths)
+            for k, v in paths.items():
+                if k in entity_list:
+                    combined_paths[k] = v
+        logger.info("Subgraph found for {} entities. Total entities to load {}".format(len(combined_paths),
+                                                                                       len(entity_list)))
+    return combined_paths
 
 
 # def load_data_from_triples(triples: List[Tuple[str, str, str]]) -> DefaultDict[Tuple[str, str], list]:
@@ -125,8 +166,8 @@ def create_vocab(kg_file: str) -> Tuple[Dict[str, int], Dict[int, str], Dict[str
 
     return entity_vocab, rev_entity_vocab, rel_vocab, rev_rel_vocab
 
-def load_vocab(data_dir):
 
+def load_vocab(data_dir):
     entity_vocab_file = os.path.join(data_dir, "entity_vocab.json")
     rel_vocab_file = os.path.join(data_dir, "relation_vocab.json")
     eval_vocab_file = os.path.join(data_dir, "eval_vocab.json")
@@ -138,6 +179,7 @@ def load_vocab(data_dir):
             all_vocabs.append(vocab)
             all_vocabs.append(rev_vocab)
     return all_vocabs
+
 
 # def create_vocab_wikidata(file_name: str) -> Tuple[Dict[str, int], Dict[str, int]]:
 #     vocab, rev_vocab = {}, {}
@@ -288,7 +330,6 @@ def get_inv_relation(r: str, dataset_name="nell") -> str:
     #     else:
     #         return "_" + r
 
-
 # def return_nearest_relation_str(sim_sorted_ind, rev_rel_vocab, rel, k=5):
 #     """
 #     helper method to print nearest relations
@@ -300,7 +341,6 @@ def get_inv_relation(r: str, dataset_name="nell") -> str:
 #     print("====Query rel: {}====".format(rev_rel_vocab[rel]))
 #     nearest_rel_inds = sim_sorted_ind[rel, :k]
 #     return [rev_rel_vocab[i] for i in nearest_rel_inds]
-
 
 
 # if __name__ == '__main__':

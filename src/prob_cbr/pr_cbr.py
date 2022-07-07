@@ -1,9 +1,9 @@
 import argparse
 import numpy as np
 from scipy.special import logsumexp
-import scipy.sparse
 import os
 from tqdm import tqdm
+import scipy.sparse
 from collections import defaultdict
 import pickle
 import torch
@@ -13,10 +13,10 @@ import logging
 import json
 import sys
 import wandb
-from prob_cbr.preprocessing.preprocessing import combine_path_splits
-from prob_cbr.utils import get_programs
+
+from prob_cbr.utils import get_programs, create_sparse_adj_mats, execute_one_program
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
-    read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
+    read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list, load_subgraphs
 
 logger = logging.getLogger()
 logging.basicConfig(
@@ -41,28 +41,9 @@ class ProbCBR(object):
         self.per_relation_config = per_relation_config
         self.num_non_executable_programs = []
         self.nearest_neighbor_1_hop = None
-        self.sparse_adj_mats = {}
-        self.top_query_preds = {}
-        self.create_sparse_adj_mats()
-
-    def create_sparse_adj_mats(self):
         logger.info("Building sparse adjacency matrices")
-        csr_data, csr_row, csr_col = {}, {}, {}
-        for (e1, r), e2_list in self.train_map.items():
-            _ = csr_data.setdefault(r, [])
-            _ = csr_row.setdefault(r, [])
-            _ = csr_col.setdefault(r, [])
-            for e2 in e2_list:
-                csr_data[r].append(1)
-                csr_row[r].append(self.entity_vocab[e2])
-                csr_col[r].append(self.entity_vocab[e1])
-        for r in self.rel_vocab:
-            self.sparse_adj_mats[r] = scipy.sparse.csr_matrix((np.array(csr_data[r], dtype=np.uint32),  # data
-                                                               (np.array(csr_row[r], dtype=np.int64),  # row
-                                                                np.array(csr_col[r], dtype=np.int64))  # col
-                                                               ),
-                                                              shape=(len(self.entity_vocab), len(self.entity_vocab))
-                                                              )
+        self.sparse_adj_mats = create_sparse_adj_mats(self.train_map, self.entity_vocab, self.rel_vocab)
+        self.top_query_preds = {}
 
     def set_nearest_neighbor_1_hop(self, nearest_neighbor_1_hop):
         self.nearest_neighbor_1_hop = nearest_neighbor_1_hop
@@ -102,7 +83,7 @@ class ProbCBR(object):
                     nearest_entities = [self.rel_ent_map[r][r_idx] for r_idx in random_idx]
         if nearest_entities is None or len(nearest_entities) == 0:
             self.all_num_ret_nn.append(0)
-            return None
+            return []
         self.all_num_ret_nn.append(len(nearest_entities))
         zero_ctr = 0
         for e in nearest_entities:
@@ -158,19 +139,6 @@ class ProbCBR(object):
 
         return sorted_programs
 
-    def execute_one_program(self, e: str, path: List[str], depth: int, max_branch: int) -> np.ndarray:
-        """
-        starts from an entity and executes the path by doing depth first search. If there are multiple edges with the same label, we consider
-        max_branch number.
-        """
-        src_vec = np.zeros((len(self.entity_vocab), 1), dtype=np.uint32)
-        src_vec[self.entity_vocab[e]] = 1
-        ent_vec = scipy.sparse.csr_matrix(src_vec)
-        for r in path:
-            ent_vec = self.sparse_adj_mats[r] * ent_vec
-        final_counts = ent_vec.toarray().reshape(-1)
-        return final_counts
-
     def execute_programs(self, e: str, r: str, path_list: List[List[str]], max_branch: Optional[int] = 1000) \
             -> Tuple[List[Tuple[np.ndarray, float, List[str]]], List[List[str]]]:
 
@@ -200,7 +168,7 @@ class ProbCBR(object):
         for path in path_list:
             if executed_path_counter == max_num_programs_for_r:
                 break
-            ans = self.execute_one_program(e, path, depth=0, max_branch=max_branch)
+            ans = execute_one_program(self.sparse_adj_mats, self.entity_vocab, e, path)
             if self.args.use_path_counts:
                 try:
                     if path in self.args.path_prior_map_per_relation[self.c][r] and path in \
@@ -608,12 +576,6 @@ def main(args):
                                        os.path.join(data_dir, 'test.txt'))
     args.all_kg_map = all_kg_map
 
-    ########### Load all paths ###########
-    file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_around_entities, args.max_path_len)
-    all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
-
-    prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
-                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map, per_relation_config)
     ########### entity sim ###########
     if os.path.exists(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")):
         with open(os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl"), "rb") as fin:
@@ -626,10 +588,29 @@ def main(args):
                 os.path.join(args.data_dir, "data", args.dataset_name, "ent_sim.pkl")))
         sys.exit(1)
     assert arg_sim is not None
+
+    # we will load all_paths later; look below
+    all_paths = None
+    prob_cbr_agent = ProbCBR(args, train_map, eval_map, entity_vocab, rev_entity_vocab, rel_vocab,
+                             rev_rel_vocab, eval_vocab, eval_rev_vocab, all_paths, rel_ent_map, per_relation_config)
+
     prob_cbr_agent.set_nearest_neighbor_1_hop(arg_sim)
 
+    ########### Load all paths ###########
+    # get all nearest neighbors of all queries and load paths around them only. This lets
+    # us save memory, since loading the paths files can take a lot of memory especially ~ >=5K paths
+    all_nns = set()
+    for (e1, r) in eval_map.keys():
+        nearest_neighbors = prob_cbr_agent.get_nearest_neighbor_inner_product(e1, r,
+                                                                              k=100)  # collect paths for more entities than required
+        for nn in nearest_neighbors:
+            all_nns.add(nn)
+    file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_around_entities, args.max_path_len)
+    all_paths = load_subgraphs(all_nns, subgraph_dir, file_prefix)
+    # set all_paths for pr_cbr object
+    prob_cbr_agent.all_paths = all_paths
     ########### cluster entities ###########
-    dir_name = os.path.join(data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
+    dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
     cluster_file_name = os.path.join(dir_name, "cluster_assignments.pkl")
     if os.path.exists(cluster_file_name):
         with open(cluster_file_name, "rb") as fin:
@@ -637,6 +618,7 @@ def main(args):
     else:
         logger.info(
             "Clustering file not found at {}. Please run the preprocessing script first".format(cluster_file_name))
+        sys.exit(1)
 
     ########### load prior maps ###########
     path_prior_map_filenm = os.path.join(data_dir, "linkage={}".format(args.linkage), "prior_maps",

@@ -15,7 +15,7 @@ import time
 
 from prob_cbr.data.data_utils import create_vocab, load_vocab, load_data, get_unique_entities, \
     read_graph, get_entities_group_by_relation, get_inv_relation, load_data_all_triples, create_adj_list
-from prob_cbr.utils import execute_one_program, get_programs, get_adj_mat
+from prob_cbr.utils import execute_one_program, get_programs, get_adj_mat, create_sparse_adj_mats
 from numpy.random import default_rng
 
 rng = default_rng()
@@ -65,8 +65,7 @@ def get_paths(args, train_adj_list, start_node, max_len=3):
     return all_paths
 
 
-def combine_path_splits(data_dir, file_prefix=None):
-
+def combine_path_splits(data_dir, file_prefix=None, job_id=0, total_jobs=1):
     combined_paths = defaultdict(list)
     # combined_paths = []
     file_names = []
@@ -76,21 +75,27 @@ def combine_path_splits(data_dir, file_prefix=None):
                 if not f.startswith(file_prefix):
                     continue
             file_names.append(f)
-    for f in file_names:
+    total_num_files = len(file_names)
+    # sort this list so that every job gets the same list for processing
+    file_names = sorted(file_names)
+    job_size = total_num_files / total_jobs
+    st = job_id * job_size
+    en = min((job_id + 1) * job_size, total_num_files)
+    logger.info("Start of partition: {}, End of partition: {}".format(st, en))
+    for file_ctr, f in enumerate(file_names):
+        if file_ctr < st or file_ctr >= en:
+            continue
         logger.info("Reading file name: {}".format(os.path.join(data_dir, f)))
         with open(os.path.join(data_dir, f), "rb") as fin:
             paths = pickle.load(fin)
             # combined_paths.append(paths)
             for k, v in paths.items():
                 combined_paths[k] = v
-    # import pdb
-    # pdb.set_trace()
     return combined_paths
 
 
 def get_paths_parallel(args, kg_file, out_dir, job_id=0, total_jobs=1):
     """
-
     :param kg_file:
     :return:
     """
@@ -126,7 +131,7 @@ def get_paths_parallel(args, kg_file, out_dir, job_id=0, total_jobs=1):
     fout.close()
 
 
-def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
+def combine_precision_maps(args, dir_name, output_dir_name, output_file_name="precision_map.pkl"):
     """
     Combines all the individual maps
     :param dir_name:
@@ -144,27 +149,29 @@ def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
                 all_denominator_maps.append(count_maps["denominator_map"])
     assert len(all_numerator_maps) == len(all_denominator_maps)
     for numerator_map, denominator_map in zip(all_numerator_maps, all_denominator_maps):
-        for c, _ in numerator_map.items():
-            for r, _ in numerator_map[c].items():
-                for path, s_c in numerator_map[c][r].items():
+        for e, _ in numerator_map.items():
+            c = args.cluster_assignments[e]
+            for r, _ in numerator_map[e].items():
+                for path, s_c in numerator_map[e][r].items():
                     if c not in combined_numerator_map:
                         combined_numerator_map[c] = {}
                     if r not in combined_numerator_map[c]:
                         combined_numerator_map[c][r] = {}
                     if path not in combined_numerator_map[c][r]:
                         combined_numerator_map[c][r][path] = 0
-                    combined_numerator_map[c][r][path] += numerator_map[c][r][path]
+                    combined_numerator_map[c][r][path] += numerator_map[e][r][path]
 
-        for c, _ in denominator_map.items():
-            for r, _ in denominator_map[c].items():
-                for path, s_c in denominator_map[c][r].items():
+        for e, _ in denominator_map.items():
+            c = args.cluster_assignments[e]
+            for r, _ in denominator_map[e].items():
+                for path, s_c in denominator_map[e][r].items():
                     if c not in combined_denominator_map:
                         combined_denominator_map[c] = {}
                     if r not in combined_denominator_map[c]:
                         combined_denominator_map[c][r] = {}
                     if path not in combined_denominator_map[c][r]:
                         combined_denominator_map[c][r][path] = 0
-                    combined_denominator_map[c][r][path] += denominator_map[c][r][path]
+                    combined_denominator_map[c][r][path] += denominator_map[e][r][path]
     # now calculate precision
     ratio_map = {}
     for c, _ in combined_numerator_map.items():
@@ -180,7 +187,7 @@ def combine_precision_maps(dir_name, output_file_name="precision_map.pkl"):
                     import pdb
                     pdb.set_trace()
 
-    output_filenm = os.path.join(dir_name, output_file_name)
+    output_filenm = os.path.join(output_dir_name, output_file_name)
     logger.info("Dumping ratio map at {}".format(output_filenm))
     with open(output_filenm, "wb") as fout:
         pickle.dump(ratio_map, fout)
@@ -210,7 +217,7 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
             continue
         if e_ctr % 100 == 0:
             logger.info("Processing entity# {}".format(e_ctr))
-        c = args.cluster_assignments[args.entity_vocab[e1]]
+        c = args.entity_vocab[e1]  # calculate stats for each entity
         if c not in success_map:
             success_map[c] = {}
         if c not in total_map:
@@ -219,12 +226,13 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
             success_map[c][r] = {}
         if r not in total_map[c]:
             total_map[c][r] = {}
-        if r in args.path_prior_map_per_relation[c]:
-            paths_for_this_relation = args.path_prior_map_per_relation[c][r]
+        if r in args.path_prior_map_per_entity[c]:
+            paths_for_this_relation = args.path_prior_map_per_entity[c][r]
         else:
             continue  # if a relation is missing from prior map, then no need to calculate precision for that relation.
         for p_ctr, (path, _) in enumerate(paths_for_this_relation.items()):
-            ans = execute_one_program(args.train_map, e1, path, depth=0, max_branch=100)
+            ans_vec = execute_one_program(args.sparse_adj_mats, args.entity_vocab, e1, path)
+            ans = [args.rev_entity_vocab[d_e] for d_e in np.nonzero(ans_vec)[0]]
             if len(ans) == 0:
                 continue
             # execute the path get answer
@@ -243,7 +251,7 @@ def calc_precision_map_parallel(args, dir_name, job_id=0, total_jobs=1):
     logger.info("Done...")
 
 
-def combine_prior_maps(dir_name, output_file_name="path_prior_map.pkl"):
+def combine_prior_maps(args, dir_name, output_dir, output_file_name="path_prior_map.pkl"):
     all_program_maps = []
     combined_program_maps = {}
     logger.info("Combining prior maps located in {}".format(dir_name))
@@ -255,16 +263,17 @@ def combine_prior_maps(dir_name, output_file_name="path_prior_map.pkl"):
                 all_program_maps.append(program_maps)
 
     for program_map in all_program_maps:
-        for c, _ in program_map.items():
-            for r, _ in program_map[c].items():
-                for path, s_c in program_map[c][r].items():
+        for e, _ in program_map.items():
+            c = args.cluster_assignments[e]
+            for r, _ in program_map[e].items():
+                for path, s_c in program_map[e][r].items():
                     if c not in combined_program_maps:
                         combined_program_maps[c] = {}
                     if r not in combined_program_maps[c]:
                         combined_program_maps[c][r] = {}
                     if path not in combined_program_maps[c][r]:
                         combined_program_maps[c][r][path] = 0
-                    combined_program_maps[c][r][path] += program_map[c][r][path]
+                    combined_program_maps[c][r][path] += program_map[e][r][path]
 
     for c, _ in combined_program_maps.items():
         for r, path_counts in combined_program_maps[c].items():
@@ -274,14 +283,14 @@ def combine_prior_maps(dir_name, output_file_name="path_prior_map.pkl"):
             for p, p_c in path_counts.items():
                 combined_program_maps[c][r][p] = p_c / sum_path_counts
 
-    output_filenm = os.path.join(dir_name, output_file_name)
+    output_filenm = os.path.join(output_dir, output_file_name)
     logger.info("Dumping ratio map at {}".format(output_filenm))
     with open(output_filenm, "wb") as fout:
         pickle.dump(combined_program_maps, fout)
     logger.info("Done...")
 
 
-def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0, total_jobs=1):
+def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0):
     """
     Calculate how probable a path is given a query relation, i.e P(path|query rel)
     For each entity in the graph, count paths that exists for each relation in the
@@ -290,20 +299,11 @@ def calc_prior_path_prob_parallel(args, output_dir_name, job_id=0, total_jobs=1)
     """
     logger.info("Calculating prior map")
     programs_map = {}
-    job_size = len(args.train_map) / total_jobs
-    st = job_id * job_size
-    en = min((job_id + 1) * job_size, len(args.train_map))
-    logger.info("Start of partition: {}, End of partition: {}".format(st, en))
     train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in args.train_map.items()]
-    # sort this list so that every job gets the same list for processing
-    train_map = [((e1, r), e2_list) for ((e1, r), e2_list) in sorted(train_map, key=lambda item: item[0])]
     for e_ctr, ((e1, r), e2_list) in enumerate(tqdm((train_map))):
-        if e_ctr < st or e_ctr >= en:
-            # not this partition
-            continue
         if e_ctr % 100 == 0:
             logger.info("Processing entity #{}".format(e_ctr))
-        c = args.cluster_assignments[args.entity_vocab[e1]]
+        c = args.entity_vocab[e1]  # calculate stats for each entity
         if c not in programs_map:
             programs_map[c] = {}
         if r not in programs_map[c]:
@@ -420,19 +420,6 @@ if __name__ == '__main__':
         get_paths_parallel(args, kg_file, subgraph_dir, args.current_job, args.total_jobs)
         sys.exit(0)
 
-    if args.combine_prior_map:
-        dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage), "prior_maps",
-                                "path_{}".format(args.num_paths_to_collect))
-        combine_prior_maps(dir_name)
-        sys.exit(0)
-    if args.combine_precision_map:
-        dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage), "precision_maps",
-                                "path_{}".format(args.num_paths_to_collect))
-        combine_precision_maps(dir_name)
-        sys.exit(0)
-
     logger.info("Loading train map")
     train_map = load_data(kg_file)
     logger.info("Loading dev map")
@@ -479,6 +466,8 @@ if __name__ == '__main__':
     args.dev_map = dev_map
     args.test_map = test_map
     adj_mat = get_adj_mat(kg_file, entity_vocab, rel_vocab)
+    logger.info("Building sparse adjacency matrices")
+    args.sparse_adj_mats = create_sparse_adj_mats(args.train_map, args.entity_vocab, args.rel_vocab)
     if args.calculate_ent_similarity:
         logger.info("Calculating entity similarity matrix...")
         adj_mat = torch.from_numpy(adj_mat)
@@ -547,29 +536,41 @@ if __name__ == '__main__':
             fout = open(os.path.join(dir_name, "cluster_assignments.pkl"), "wb")
             pickle.dump(args.cluster_assignments, fout)
             fout.close()
-
+            sys.exit(0)
     dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage={}".format(args.linkage))
-    logger.info("Loading cluster assignments of entities from {}".format(os.path.join(dir_name, "cluster_assignments.pkl")))
+    logger.info(
+        "Loading cluster assignments of entities from {}".format(os.path.join(dir_name, "cluster_assignments.pkl")))
     with open(os.path.join(dir_name, "cluster_assignments.pkl"), "rb") as fin:
         args.cluster_assignments = pickle.load(fin)
 
     if args.calculate_prior_map_parallel:
         logger.info(
             "Calculating prior map. Current job id: {}, Total jobs: {}".format(args.current_job, args.total_jobs))
-        assert args.cluster_assignments is not None
         logger.info("Loading subgraph around entities:")
         file_prefix = "paths_{}_path_len_{}_".format(args.num_paths_to_collect, args.max_len)
-        all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix)
+        all_paths = combine_path_splits(subgraph_dir, file_prefix=file_prefix, job_id=args.current_job,
+                                        total_jobs=args.total_jobs)
         logger.info("Done...")
         args.all_paths = all_paths
         assert args.all_paths is not None
         assert args.train_map is not None
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage), "prior_maps",
+                                "per_entity_maps", "prior_maps",
                                 "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
-        calc_prior_path_prob_parallel(args, dir_name, args.current_job, args.total_jobs)
+        calc_prior_path_prob_parallel(args, dir_name, args.current_job)
+
+    if args.combine_prior_map:
+        assert args.cluster_assignments is not None
+        input_dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
+                                      "per_entity_maps", "prior_maps",
+                                      "path_{}".format(args.num_paths_to_collect))
+        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage=0.0", "prior_maps",
+                                       "path_{}".format(args.num_paths_to_collect))
+        if not os.path.exists(output_dir_name):
+            os.makedirs(output_dir_name)
+        combine_prior_maps(args, input_dir_name, output_dir_name)
 
     if args.calculate_precision_map_parallel:
         logger.info(
@@ -577,13 +578,21 @@ if __name__ == '__main__':
         assert args.train_map is not None
         logger.info("Loading prior map...")
         dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
-                                "linkage={}".format(args.linkage))
-        with open(
-                os.path.join(dir_name, "prior_maps", "path_{}".format(args.num_paths_to_collect), "path_prior_map.pkl"),
-                "rb") as fin:
-            args.path_prior_map_per_relation = pickle.load(fin)
-        assert args.path_prior_map_per_relation is not None
+                                "per_entity_maps")
+        per_entity_prior_map_dir = os.path.join(dir_name, "prior_maps", "path_{}".format(args.num_paths_to_collect))
+        args.path_prior_map_per_entity = combine_path_splits(per_entity_prior_map_dir)
+        assert args.path_prior_map_per_entity is not None
         dir_name = os.path.join(dir_name, "precision_maps", "path_{}".format(args.num_paths_to_collect))
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         calc_precision_map_parallel(args, dir_name, args.current_job, args.total_jobs)
+
+    if args.combine_precision_map:
+        dir_name = os.path.join(args.data_dir, "data", args.dataset_name,
+                                "per_entity_maps", "precision_maps",
+                                "path_{}".format(args.num_paths_to_collect))
+        output_dir_name = os.path.join(args.data_dir, "data", args.dataset_name, "linkage=0.0", "precision_maps",
+                                       "path_{}".format(args.num_paths_to_collect))
+        if not os.path.exists(output_dir_name):
+            os.makedirs(output_dir_name)
+        combine_precision_maps(args, dir_name, output_dir_name)
